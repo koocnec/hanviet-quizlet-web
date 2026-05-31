@@ -293,7 +293,7 @@ try:
             label = "Nhập tiếng Hàn rồi nhấn Enter"
         else:
             prompt_main = wc["kr"]
-           prompt_sub = ""
+            prompt_sub = ""
             expected = wc["vi"]
             label = "Nhập nghĩa tiếng Việt rồi nhấn Enter"
 
