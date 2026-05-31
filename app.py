@@ -148,7 +148,7 @@ for k, v in {
         st.session_state[k] = v
 
 st.markdown(
-    '<div class="main-title" style="text-align:center;">Học Đi AE ^^</div>',
+    '<div class="main-title" style="text-align:center; transform: translateX(-3cm);">Bùi Văn Toàn</div>',
     unsafe_allow_html=True
 )
 st.caption("Bản V7: có tiếng Hàn là tạo thẻ. Chế độ gõ bắt buộc trả lời đúng mới qua câu tiếp theo.")
