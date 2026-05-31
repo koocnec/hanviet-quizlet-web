@@ -5,7 +5,7 @@ import unicodedata
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="KR HanViet Flashcards V5", page_icon="📁", layout="wide")
+st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
 st.markdown("""
 <style>
