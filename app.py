@@ -25,7 +25,7 @@ st.markdown("""
 
 col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
-    st.image(".png", width=180)
+    st.image("2612.png", width=180)
 @st.cache_data(show_spinner=False)
 def read_google_sheet(url: str, sheet_name: str) -> pd.DataFrame:
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
