@@ -23,6 +23,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    st.image(".png", width=180)
 @st.cache_data(show_spinner=False)
 def read_google_sheet(url: str, sheet_name: str) -> pd.DataFrame:
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
@@ -144,7 +147,10 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-st.markdown('<div class="main-title">KR HanViet Flashcards <span class="version-badge">V5: CÓ TIẾNG HÀN LÀ TẠO THẺ + GÕ VĂN BẢN</span></div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="main-title" style="text-align:center;">Bùi Văn Toàn</div>',
+    unsafe_allow_html=True
+)
 st.caption("Bản V7: có tiếng Hàn là tạo thẻ. Chế độ gõ bắt buộc trả lời đúng mới qua câu tiếp theo.")
 
 with st.sidebar:
