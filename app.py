@@ -7,7 +7,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 # ===== GOOGLE LOGIN =====
-if not st.user.is_logged_in:
+if not st.user.get("is_logged_in", False):
     st.markdown(
         """
         <div style="text-align:center; margin-top:80px;">
