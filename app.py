@@ -6,29 +6,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
-# ===== GOOGLE LOGIN =====
-if not st.user.is_logged_in:
-    st.markdown(
-        """
-        <div style="text-align:center; margin-top:80px;">
-            <h1>Đăng nhập để sử dụng app</h1>
-            <p>Vui lòng đăng nhập bằng Google.</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        if st.button("🔐 Đăng nhập bằng Google", use_container_width=True):
-            st.login("google")
-
-    st.stop()
-
-with st.sidebar:
-    st.success(f"Đã đăng nhập: {st.user.email}")
-    if st.button("Đăng xuất"):
-        st.logout()
 st.markdown("""
 <style>
 .main-title {font-size: 46px; font-weight: 900; margin-bottom: 0px;}
