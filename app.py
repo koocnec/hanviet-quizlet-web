@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
+DEFAULT_GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=881137373#gid=881137373"
 
 st.markdown("""
 <style>
@@ -160,7 +161,10 @@ with st.sidebar:
     google_url = ""
     uploaded = None
     if source == "Google Sheets link":
-        google_url = st.text_input("Dán link Google Sheets")
+        google_url = st.text_input(
+    "Dán link Google Sheets",
+    value=DEFAULT_GOOGLE_SHEET_URL
+)
         st.info("Share Google Sheets: Anyone with the link → Viewer.")
     else:
         uploaded = st.file_uploader("Upload Excel/CSV", type=["xlsx", "xlsm", "csv"])
