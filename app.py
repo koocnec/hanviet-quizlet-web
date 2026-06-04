@@ -4,6 +4,7 @@ import math
 import unicodedata
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
@@ -232,6 +233,9 @@ for k, v in {
     "write_cards_order": [],
     "write_input": "",
     "folder_learn_count": {},
+    "quiz_q": None,
+    "quiz_options": [],
+    "quiz_last_result": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -609,20 +613,30 @@ try:
         if len(valid_for_quiz) < 4:
             st.warning("Cần ít nhất 4 thẻ có nghĩa để làm quiz.")
         else:
-            if "quiz_q" not in st.session_state or st.button("Câu mới"):
-                q = random.choice(valid_for_quiz)
-                wrong_pool = [x for x in valid_for_quiz if x["vi"] != q["vi"]]
+            def make_new_quiz_question():
+                new_q = random.choice(valid_for_quiz)
+                new_wrong_pool = [x for x in valid_for_quiz if x["vi"] != new_q["vi"]]
 
-                options = [q["vi"]] + [
-                    x["vi"] for x in random.sample(wrong_pool, min(3, len(wrong_pool)))
+                new_options = [new_q["vi"]] + [
+                    x["vi"] for x in random.sample(new_wrong_pool, min(3, len(new_wrong_pool)))
                 ]
 
-                random.shuffle(options)
+                random.shuffle(new_options)
 
-                st.session_state.quiz_q = q
-                st.session_state.quiz_options = options
+                st.session_state.quiz_q = new_q
+                st.session_state.quiz_options = new_options
+
+            if st.session_state.quiz_q is None or not st.session_state.quiz_options:
+                make_new_quiz_question()
+                st.session_state.quiz_last_result = None
+
+            if st.button("Câu mới"):
+                make_new_quiz_question()
+                st.session_state.quiz_last_result = None
+                st.rerun()
 
             q = st.session_state.quiz_q
+            options = st.session_state.quiz_options
 
             st.markdown(
                 f"<div class='card'>"
@@ -631,13 +645,56 @@ try:
                 unsafe_allow_html=True
             )
 
-            choice = st.radio("Chọn nghĩa đúng", st.session_state.quiz_options)
+            st.caption("Bấm đáp án hoặc nhấn phím số 1 / 2 / 3 / 4 trên bàn phím để chọn nhanh.")
 
-            if st.button("Chấm điểm"):
-                if choice == q["vi"]:
-                    st.success("Đúng rồi!")
-                else:
-                    st.error(f"Sai. Đáp án đúng: {q['vi']}")
+            if st.session_state.get("quiz_last_result") == "correct":
+                st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
+            elif st.session_state.get("quiz_last_result") == "wrong":
+                st.error(f"Sai. Đáp án đúng: {q['vi']}")
+
+            for idx, option in enumerate(options, start=1):
+                button_label = f"Đáp án {idx}: {option}"
+
+                if st.button(button_label, key=f"quiz_option_{idx}", use_container_width=True):
+                    if option == q["vi"]:
+                        st.session_state.quiz_last_result = "correct"
+                        make_new_quiz_question()
+                        st.rerun()
+                    else:
+                        st.session_state.quiz_last_result = "wrong"
+                        st.rerun()
+
+            components.html(
+                """
+                <script>
+                const parentDoc = window.parent.document;
+
+                if (!parentDoc.quizKeyboardListenerAdded) {
+                    parentDoc.quizKeyboardListenerAdded = true;
+
+                    parentDoc.addEventListener("keydown", function(event) {
+                        const key = event.key;
+
+                        if (!["1", "2", "3", "4"].includes(key)) {
+                            return;
+                        }
+
+                        const buttons = Array.from(parentDoc.querySelectorAll("button"));
+
+                        const targetButton = buttons.find(btn => {
+                            const text = (btn.innerText || "").trim();
+                            return text.startsWith("Đáp án " + key + ":");
+                        });
+
+                        if (targetButton) {
+                            targetButton.click();
+                        }
+                    });
+                }
+                </script>
+                """,
+                height=0
+            )
 
     with tab_match:
         st.subheader(f"🧩 Ghép cặp — Bộ {st.session_state.folder_no:03d}")
