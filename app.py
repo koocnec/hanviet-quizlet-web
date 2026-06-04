@@ -5,6 +5,7 @@ import unicodedata
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import json
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
@@ -62,6 +63,19 @@ st.markdown("""
     color: #c7c9ff;
     font-weight: 800;
     margin-top: 14px;
+}
+
+.quiz-num {
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    color: #ffffff;
+    border: 1px solid #4b5563;
+    border-radius: 8px;
+    background: #111827;
+    margin-top: 2px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -698,16 +712,23 @@ try:
 
             for idx, option in enumerate(options, start=1):
                 with answer_cols[(idx - 1) % 2]:
-                    button_label = f"{idx}     {option}"
+                    num_col, btn_col = st.columns([1, 9])
 
-                    if st.button(button_label, key=f"quiz_option_{idx}", use_container_width=True):
-                        if option == q["vi"]:
-                            st.session_state.quiz_last_result = "correct"
-                            make_new_quiz_question()
-                            st.rerun()
-                        else:
-                            st.session_state.quiz_last_result = "wrong"
-                            st.rerun()
+                    with num_col:
+                        st.markdown(
+                            f"<div class='quiz-num'>{idx}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                    with btn_col:
+                        if st.button(option, key=f"quiz_option_{idx}", use_container_width=True):
+                            if option == q["vi"]:
+                                st.session_state.quiz_last_result = "correct"
+                                make_new_quiz_question()
+                                st.rerun()
+                            else:
+                                st.session_state.quiz_last_result = "wrong"
+                                st.rerun()
 
             st.markdown(
                 """
@@ -716,33 +737,61 @@ try:
                 unsafe_allow_html=True
             )
 
+            quiz_options_json = json.dumps([str(x) for x in options], ensure_ascii=False)
+
             components.html(
-                """
+                f"""
                 <script>
                 const parentDoc = window.parent.document;
 
-                if (!parentDoc.quizKeyboardListenerAdded) {
-                    parentDoc.quizKeyboardListenerAdded = true;
+                parentDoc.quizCurrentOptions = {quiz_options_json};
 
-                    parentDoc.addEventListener("keydown", function(event) {
+                if (!parentDoc.quizKeyboardListenerFixedV2) {{
+                    parentDoc.quizKeyboardListenerFixedV2 = true;
+
+                    parentDoc.addEventListener("keydown", function(event) {{
                         const key = event.key;
 
-                        if (!["1", "2", "3", "4"].includes(key)) {
+                        if (!["1", "2", "3", "4"].includes(key)) {{
                             return;
-                        }
+                        }}
+
+                        const active = parentDoc.activeElement;
+                        const tag = active && active.tagName ? active.tagName.toLowerCase() : "";
+
+                        if (tag === "input" || tag === "textarea" || (active && active.isContentEditable)) {{
+                            return;
+                        }}
+
+                        const index = parseInt(key, 10) - 1;
+                        const options = parentDoc.quizCurrentOptions || [];
+                        const targetText = options[index];
+
+                        if (!targetText) {{
+                            return;
+                        }}
+
+                        event.preventDefault();
 
                         const buttons = Array.from(parentDoc.querySelectorAll("button"));
 
-                        const targetButton = buttons.find(btn => {
+                        let targetButton = buttons.find(btn => {{
                             const text = (btn.innerText || "").trim();
-                            return text.startsWith(key + " ");
-                        });
+                            return text === targetText.trim();
+                        }});
 
-                        if (targetButton) {
+                        if (!targetButton) {{
+                            targetButton = buttons.find(btn => {{
+                                const text = (btn.innerText || "").trim();
+                                return text.includes(targetText.trim());
+                            }});
+                        }}
+
+                        if (targetButton) {{
                             targetButton.click();
-                        }
-                    });
-                }
+                        }}
+                    }});
+                }}
                 </script>
                 """,
                 height=0
