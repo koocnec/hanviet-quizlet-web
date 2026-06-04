@@ -2,10 +2,10 @@ import re
 import random
 import math
 import unicodedata
+import html
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-import json
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
@@ -58,13 +58,6 @@ st.markdown("""
     margin-bottom: 10px;
 }
 
-.quiz-help {
-    text-align: right;
-    color: #c7c9ff;
-    font-weight: 800;
-    margin-top: 14px;
-}
-
 .quiz-num {
     height: 42px;
     display: flex;
@@ -76,6 +69,13 @@ st.markdown("""
     border-radius: 8px;
     background: #111827;
     margin-top: 2px;
+}
+
+.quiz-help {
+    text-align: right;
+    color: #c7c9ff;
+    font-weight: 800;
+    margin-top: 14px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -136,7 +136,8 @@ def clean_text(x):
 
 
 def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str):
-    ki, vi = col_letter_to_index(kr_col), col_letter_to_index(vi_col)
+    ki = col_letter_to_index(kr_col)
+    vi = col_letter_to_index(vi_col)
     di = col_letter_to_index(detail_col) if detail_col else None
 
     cards = []
@@ -227,6 +228,13 @@ def reset_write():
     st.session_state.write_input = ""
 
 
+def reset_quiz():
+    st.session_state.quiz_q = None
+    st.session_state.quiz_options = []
+    st.session_state.quiz_last_result = None
+    st.session_state.quiz_last_token = None
+
+
 def choose_folder(folder_no):
     if "folder_learn_count" not in st.session_state:
         st.session_state.folder_learn_count = {}
@@ -241,6 +249,8 @@ def choose_folder(folder_no):
     st.session_state.folder_no = folder_no
     reset_card()
     reset_write()
+    reset_quiz()
+    st.query_params.clear()
     st.rerun()
 
 
@@ -290,6 +300,7 @@ for k, v in {
     "quiz_q": None,
     "quiz_options": [],
     "quiz_last_result": None,
+    "quiz_last_token": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -484,16 +495,16 @@ try:
         if st.session_state.show_answer:
             st.markdown(
                 f"<div class='card'>"
-                f"<div class='korean'>{card['kr']}</div>"
-                f"<div class='meaning'>{card['vi']}</div>"
-                f"<div class='detail'>{card['detail']}</div>"
+                f"<div class='korean'>{html.escape(card['kr'])}</div>"
+                f"<div class='meaning'>{html.escape(card['vi'])}</div>"
+                f"<div class='detail'>{html.escape(card['detail'])}</div>"
                 f"</div>",
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
                 f"<div class='card'>"
-                f"<div class='korean'>{card['kr']}</div>"
+                f"<div class='korean'>{html.escape(card['kr'])}</div>"
                 f"<div class='detail'>Bấm Hiện nghĩa để xem đáp án.</div>"
                 f"</div>",
                 unsafe_allow_html=True
@@ -575,8 +586,8 @@ try:
 
         st.markdown(
             f"<div class='card'>"
-            f"<div class='meaning'>{prompt_main}</div>"
-            f"<div class='detail'>{prompt_sub}</div>"
+            f"<div class='meaning'>{html.escape(prompt_main)}</div>"
+            f"<div class='detail'>{html.escape(prompt_sub)}</div>"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -646,7 +657,7 @@ try:
 
         st.markdown(
             f"<div class='card'>"
-            f"<div class='korean'>{c['kr']}</div>"
+            f"<div class='korean'>{html.escape(c['kr'])}</div>"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -684,9 +695,36 @@ try:
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
 
+            q = st.session_state.quiz_q
+            options = st.session_state.quiz_options
+
+            query_params = st.query_params
+            quiz_choice = query_params.get("quiz_choice", None)
+            quiz_token = query_params.get("quiz_token", None)
+
+            if quiz_choice and quiz_token and quiz_token != st.session_state.quiz_last_token:
+                st.session_state.quiz_last_token = quiz_token
+
+                try:
+                    choice_index = int(quiz_choice) - 1
+                except ValueError:
+                    choice_index = -1
+
+                if 0 <= choice_index < len(options):
+                    selected_option = options[choice_index]
+
+                    if selected_option == q["vi"]:
+                        st.session_state.quiz_last_result = "correct"
+                        make_new_quiz_question()
+                        st.rerun()
+                    else:
+                        st.session_state.quiz_last_result = "wrong"
+                        st.rerun()
+
             if st.button("Câu mới"):
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
+                st.query_params.clear()
                 st.rerun()
 
             q = st.session_state.quiz_q
@@ -696,7 +734,7 @@ try:
                 f"""
                 <div class="quiz-box">
                     <div class="quiz-label">Thuật ngữ</div>
-                    <div class="quiz-question">{q["kr"]}</div>
+                    <div class="quiz-question">{html.escape(q["kr"])}</div>
                     <div class="quiz-answer-title">Chọn đáp án đúng</div>
                 </div>
                 """,
@@ -721,7 +759,7 @@ try:
                         )
 
                     with btn_col:
-                        if st.button(option, key=f"quiz_option_{idx}", use_container_width=True):
+                        if st.button(str(option), key=f"quiz_option_{idx}", use_container_width=True):
                             if option == q["vi"]:
                                 st.session_state.quiz_last_result = "correct"
                                 make_new_quiz_question()
@@ -737,61 +775,44 @@ try:
                 unsafe_allow_html=True
             )
 
-            quiz_options_json = json.dumps([str(x) for x in options], ensure_ascii=False)
-
             components.html(
-                f"""
+                """
                 <script>
+                function chooseQuizByNumber(key) {
+                    const parentWindow = window.parent;
+                    const currentUrl = new URL(parentWindow.location.href);
+
+                    currentUrl.searchParams.set("quiz_choice", String(key));
+                    currentUrl.searchParams.set("quiz_token", String(Date.now()));
+
+                    parentWindow.location.href = currentUrl.toString();
+                }
+
                 const parentDoc = window.parent.document;
 
-                parentDoc.quizCurrentOptions = {quiz_options_json};
+                if (!parentDoc.quizKeyboardListenerV4) {
+                    parentDoc.quizKeyboardListenerV4 = true;
 
-                if (!parentDoc.quizKeyboardListenerFixedV2) {{
-                    parentDoc.quizKeyboardListenerFixedV2 = true;
-
-                    parentDoc.addEventListener("keydown", function(event) {{
+                    parentDoc.addEventListener("keydown", function(event) {
                         const key = event.key;
 
-                        if (!["1", "2", "3", "4"].includes(key)) {{
+                        if (!["1", "2", "3", "4"].includes(key)) {
                             return;
-                        }}
+                        }
 
                         const active = parentDoc.activeElement;
                         const tag = active && active.tagName ? active.tagName.toLowerCase() : "";
 
-                        if (tag === "input" || tag === "textarea" || (active && active.isContentEditable)) {{
+                        if (tag === "input" || tag === "textarea" || (active && active.isContentEditable)) {
                             return;
-                        }}
-
-                        const index = parseInt(key, 10) - 1;
-                        const options = parentDoc.quizCurrentOptions || [];
-                        const targetText = options[index];
-
-                        if (!targetText) {{
-                            return;
-                        }}
+                        }
 
                         event.preventDefault();
+                        event.stopPropagation();
 
-                        const buttons = Array.from(parentDoc.querySelectorAll("button"));
-
-                        let targetButton = buttons.find(btn => {{
-                            const text = (btn.innerText || "").trim();
-                            return text === targetText.trim();
-                        }});
-
-                        if (!targetButton) {{
-                            targetButton = buttons.find(btn => {{
-                                const text = (btn.innerText || "").trim();
-                                return text.includes(targetText.trim());
-                            }});
-                        }}
-
-                        if (targetButton) {{
-                            targetButton.click();
-                        }}
-                    }});
-                }}
+                        chooseQuizByNumber(key);
+                    }, true);
+                }
                 </script>
                 """,
                 height=0
