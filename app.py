@@ -237,20 +237,43 @@ try:
     ])
 
     with tab_folder:
-        st.subheader("📁 Thư mục")
-        st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz để học đúng bộ đó.")
-        grid_cols = st.columns(5)
-        for f in range(1, total_folders + 1):
-            s = (f - 1) * folder_size + 1
-            e = min(f * folder_size, total)
-            active = f == st.session_state.folder_no
-            cls = "folder-card-active" if active else "folder-card"
-            with grid_cols[(f - 1) % 5]:
-                st.markdown(f"<div class='{cls}'><b>📁 Bộ {f:03d}</b><br><span class='small'>Từ {s}–{e}</span></div>", unsafe_allow_html=True)
-                label = "✅ Đang học" if active else f"Học bộ {f:03d}"
-                if st.button(label, key=f"choose_folder_{f}", use_container_width=True, disabled=active):
-                    st.session_state.folder_no = f
-                    reset_card(); reset_write(); st.rerun()
+    st.subheader("📁 Thư mục")
+    st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz để học đúng bộ đó.")
+
+    folder_sort = st.radio(
+        "Sắp xếp thư mục",
+        ["Nhỏ → lớn", "Lớn → nhỏ"],
+        horizontal=True,
+        key="folder_sort"
+    )
+
+    folder_list = list(range(1, total_folders + 1))
+
+    if folder_sort == "Lớn → nhỏ":
+        folder_list = list(reversed(folder_list))
+
+    grid_cols = st.columns(5)
+
+    for idx, f in enumerate(folder_list):
+        s = (f - 1) * folder_size + 1
+        e = min(f * folder_size, total)
+        active = f == st.session_state.folder_no
+        cls = "folder-card-active" if active else "folder-card"
+
+        with grid_cols[idx % 5]:
+            st.markdown(
+                f"<div class='{cls}'><b>📁 Bộ {f:03d}</b><br>"
+                f"<span class='small'>Từ {s}–{e}</span></div>",
+                unsafe_allow_html=True
+            )
+
+            label = "✅ Đang học" if active else f"Học bộ {f:03d}"
+
+            if st.button(label, key=f"choose_folder_{f}", use_container_width=True, disabled=active):
+                st.session_state.folder_no = f
+                reset_card()
+                reset_write()
+                st.rerun()
 
     with tab_flash:
         st.subheader(f"📚 Flashcard — Bộ {st.session_state.folder_no:03d}")
