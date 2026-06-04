@@ -5,7 +5,6 @@ import unicodedata
 import html
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
@@ -233,6 +232,7 @@ def reset_quiz():
     st.session_state.quiz_options = []
     st.session_state.quiz_last_result = None
     st.session_state.quiz_last_token = None
+    st.session_state.quiz_input = ""
 
 
 def choose_folder(folder_no):
@@ -301,6 +301,7 @@ for k, v in {
     "quiz_options": [],
     "quiz_last_result": None,
     "quiz_last_token": None,
+    "quiz_input": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -690,41 +691,15 @@ try:
 
                 st.session_state.quiz_q = new_q
                 st.session_state.quiz_options = new_options
+                st.session_state.quiz_input = ""
 
             if st.session_state.quiz_q is None or not st.session_state.quiz_options:
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
 
-            q = st.session_state.quiz_q
-            options = st.session_state.quiz_options
-
-            query_params = st.query_params
-            quiz_choice = query_params.get("quiz_choice", None)
-            quiz_token = query_params.get("quiz_token", None)
-
-            if quiz_choice and quiz_token and quiz_token != st.session_state.quiz_last_token:
-                st.session_state.quiz_last_token = quiz_token
-
-                try:
-                    choice_index = int(quiz_choice) - 1
-                except ValueError:
-                    choice_index = -1
-
-                if 0 <= choice_index < len(options):
-                    selected_option = options[choice_index]
-
-                    if selected_option == q["vi"]:
-                        st.session_state.quiz_last_result = "correct"
-                        make_new_quiz_question()
-                        st.rerun()
-                    else:
-                        st.session_state.quiz_last_result = "wrong"
-                        st.rerun()
-
             if st.button("Câu mới"):
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
-                st.query_params.clear()
                 st.rerun()
 
             q = st.session_state.quiz_q
@@ -768,54 +743,33 @@ try:
                                 st.session_state.quiz_last_result = "wrong"
                                 st.rerun()
 
+            st.markdown("### Chọn nhanh")
+            quick_choice = st.text_input(
+                "Nhập số 1 / 2 / 3 / 4 rồi nhấn Enter",
+                key="quiz_input",
+                placeholder="Ví dụ: 1"
+            )
+
+            if quick_choice in ["1", "2", "3", "4"]:
+                choice_index = int(quick_choice) - 1
+
+                if 0 <= choice_index < len(options):
+                    selected_option = options[choice_index]
+
+                    if selected_option == q["vi"]:
+                        st.session_state.quiz_last_result = "correct"
+                        make_new_quiz_question()
+                        st.rerun()
+                    else:
+                        st.session_state.quiz_last_result = "wrong"
+                        st.session_state.quiz_input = ""
+                        st.rerun()
+
             st.markdown(
                 """
                 <div class="quiz-help">⚑ Bạn không biết?</div>
                 """,
                 unsafe_allow_html=True
-            )
-
-            components.html(
-                """
-                <script>
-                function chooseQuizByNumber(key) {
-                    const parentWindow = window.parent;
-                    const currentUrl = new URL(parentWindow.location.href);
-
-                    currentUrl.searchParams.set("quiz_choice", String(key));
-                    currentUrl.searchParams.set("quiz_token", String(Date.now()));
-
-                    parentWindow.location.href = currentUrl.toString();
-                }
-
-                const parentDoc = window.parent.document;
-
-                if (!parentDoc.quizKeyboardListenerV4) {
-                    parentDoc.quizKeyboardListenerV4 = true;
-
-                    parentDoc.addEventListener("keydown", function(event) {
-                        const key = event.key;
-
-                        if (!["1", "2", "3", "4"].includes(key)) {
-                            return;
-                        }
-
-                        const active = parentDoc.activeElement;
-                        const tag = active && active.tagName ? active.tagName.toLowerCase() : "";
-
-                        if (tag === "input" || tag === "textarea" || (active && active.isContentEditable)) {
-                            return;
-                        }
-
-                        event.preventDefault();
-                        event.stopPropagation();
-
-                        chooseQuizByNumber(key);
-                    }, true);
-                }
-                </script>
-                """,
-                height=0
             )
 
     with tab_match:
