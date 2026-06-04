@@ -232,11 +232,11 @@ try:
     cards, start_num, end_num = get_folder(cards_all, st.session_state.folder_no, folder_size)
     st.info(f"Đang học: Bộ {st.session_state.folder_no:03d} | từ {start_num}–{end_num} | {len(cards)} thẻ")
 
-    tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_match, tab_search, tab_data = st.tabs([
+        tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_match, tab_search, tab_data = st.tabs([
         "📁 Thư mục", "📚 Flashcard", "⌨️ Gõ văn bản", "🎓 Học", "📝 Quiz", "🧩 Ghép cặp", "🔎 Tìm kiếm", "📋 Dữ liệu"
     ])
 
-     with tab_folder:
+    with tab_folder:
         st.subheader("📁 Thư mục")
         st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz để học đúng bộ đó.")
 
@@ -274,6 +274,9 @@ try:
                     reset_card()
                     reset_write()
                     st.rerun()
+
+    with tab_flash:
+        st.subheader(f"📚 Flashcard — Bộ {st.session_state.folder_no:03d}")
 
     with tab_flash:
         st.subheader(f"📚 Flashcard — Bộ {st.session_state.folder_no:03d}")
