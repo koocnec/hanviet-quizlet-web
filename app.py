@@ -359,23 +359,23 @@ try:
         st.subheader("📁 Thư mục")
         st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz để học đúng bộ đó.")
 
-        col_sort, col_filter = st.columns([1, 2])
+        col_sort, col_filter, col_empty = st.columns([2, 1, 3])
 
-        with col_sort:
-            folder_sort = st.radio(
-                "Sắp xếp thư mục",
-                ["Nhỏ → lớn", "Lớn → nhỏ"],
-                horizontal=True,
-                key="folder_sort"
-            )
+with col_sort:
+    folder_sort = st.radio(
+        "Sắp xếp thư mục",
+        ["Nhỏ → lớn", "Lớn → nhỏ"],
+        horizontal=True,
+        key="folder_sort"
+    )
 
-        with col_filter:
-            folder_filter = st.multiselect(
-                "Lọc thư mục",
-                ["Chưa học", "Đang học", "Đã học"],
-                default=["Chưa học", "Đang học", "Đã học"],
-                key="folder_filter"
-            )
+with col_filter:
+    folder_filter = st.multiselect(
+        "Lọc thư mục",
+        ["Chưa học", "Đang học", "Đã học"],
+        default=["Chưa học", "Đang học", "Đã học"],
+        key="folder_filter"
+    )
 
         folder_list = list(range(1, total_folders + 1))
 
