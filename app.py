@@ -206,6 +206,21 @@ def get_folder_status(folder_no):
     return f"✅ Đã học {count} lần"
 
 
+def get_folder_state(folder_no):
+    if "folder_learn_count" not in st.session_state:
+        st.session_state.folder_learn_count = {}
+
+    count = st.session_state.folder_learn_count.get(folder_no, 0)
+
+    if folder_no == st.session_state.folder_no:
+        return "Đang học"
+
+    if count <= 0:
+        return "Chưa học"
+
+    return "Đã học"
+
+
 for k, v in {
     "folder_no": 1,
     "card_i": 0,
@@ -344,42 +359,61 @@ try:
         st.subheader("📁 Thư mục")
         st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz để học đúng bộ đó.")
 
-        folder_sort = st.radio(
-            "Sắp xếp thư mục",
-            ["Nhỏ → lớn", "Lớn → nhỏ"],
-            horizontal=True,
-            key="folder_sort"
-        )
+        col_sort, col_filter = st.columns([1, 2])
+
+        with col_sort:
+            folder_sort = st.radio(
+                "Sắp xếp thư mục",
+                ["Nhỏ → lớn", "Lớn → nhỏ"],
+                horizontal=True,
+                key="folder_sort"
+            )
+
+        with col_filter:
+            folder_filter = st.multiselect(
+                "Lọc thư mục",
+                ["Chưa học", "Đang học", "Đã học"],
+                default=["Chưa học", "Đang học", "Đã học"],
+                key="folder_filter"
+            )
 
         folder_list = list(range(1, total_folders + 1))
 
         if folder_sort == "Lớn → nhỏ":
             folder_list = list(reversed(folder_list))
 
-        grid_cols = st.columns(5)
+        folder_list = [
+            f for f in folder_list
+            if get_folder_state(f) in folder_filter
+        ]
 
-        for idx, f in enumerate(folder_list):
-            s = (f - 1) * folder_size + 1
-            e = min(f * folder_size, total)
+        if not folder_list:
+            st.warning("Không có thư mục nào phù hợp với bộ lọc đang chọn.")
+        else:
+            grid_cols = st.columns(5)
 
-            active = f == st.session_state.folder_no
-            cls = "folder-card-active" if active else "folder-card"
-            status_text = get_folder_status(f)
+            for idx, f in enumerate(folder_list):
+                s = (f - 1) * folder_size + 1
+                e = min(f * folder_size, total)
 
-            with grid_cols[idx % 5]:
-                st.markdown(
-                    f"<div class='{cls}'>"
-                    f"<b>📁 Bộ {f:03d}</b><br>"
-                    f"<span class='small'>Từ {s}–{e}</span><br>"
-                    f"<span class='small'>{status_text}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
+                active = f == st.session_state.folder_no
+                cls = "folder-card-active" if active else "folder-card"
+                status_text = get_folder_status(f)
 
-                label = "✅ Đang học" if active else f"Học bộ {f:03d}"
+                with grid_cols[idx % 5]:
+                    st.markdown(
+                        f"<div class='{cls}'>"
+                        f"<b>📁 Bộ {f:03d}</b><br>"
+                        f"<span class='small'>Từ {s}–{e}</span><br>"
+                        f"<span class='small'>{status_text}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
 
-                if st.button(label, key=f"choose_folder_{f}", use_container_width=True, disabled=active):
-                    choose_folder(f)
+                    label = "✅ Đang học" if active else f"Học bộ {f:03d}"
+
+                    if st.button(label, key=f"choose_folder_{f}", use_container_width=True, disabled=active):
+                        choose_folder(f)
 
     with tab_flash:
         st.subheader(f"📚 Flashcard — Bộ {st.session_state.folder_no:03d}")
