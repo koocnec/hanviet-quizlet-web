@@ -172,6 +172,40 @@ def reset_write():
     st.session_state.write_input = ""
 
 
+def choose_folder(folder_no):
+    if "folder_learn_count" not in st.session_state:
+        st.session_state.folder_learn_count = {}
+
+    old_folder = st.session_state.get("folder_no", None)
+
+    if old_folder != folder_no:
+        st.session_state.folder_learn_count[folder_no] = (
+            st.session_state.folder_learn_count.get(folder_no, 0) + 1
+        )
+
+    st.session_state.folder_no = folder_no
+    reset_card()
+    reset_write()
+    st.rerun()
+
+
+def get_folder_status(folder_no):
+    if "folder_learn_count" not in st.session_state:
+        st.session_state.folder_learn_count = {}
+
+    count = st.session_state.folder_learn_count.get(folder_no, 0)
+
+    if folder_no == st.session_state.folder_no:
+        if count <= 0:
+            return "🟢 Đang học lần thứ 1"
+        return f"🟢 Đang học lần thứ {count}"
+
+    if count <= 0:
+        return "⚪ Chưa học"
+
+    return f"✅ Đã học {count} lần"
+
+
 for k, v in {
     "folder_no": 1,
     "card_i": 0,
@@ -182,9 +216,13 @@ for k, v in {
     "write_last": None,
     "write_cards_order": [],
     "write_input": "",
+    "folder_learn_count": {},
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+if st.session_state.folder_no not in st.session_state.folder_learn_count:
+    st.session_state.folder_learn_count[st.session_state.folder_no] = 1
 
 
 st.markdown(
@@ -267,10 +305,7 @@ try:
 
     with top_cols[0]:
         if st.button("⬅️ Bộ trước", disabled=st.session_state.folder_no <= 1, use_container_width=True):
-            st.session_state.folder_no -= 1
-            reset_card()
-            reset_write()
-            st.rerun()
+            choose_folder(st.session_state.folder_no - 1)
 
     with top_cols[1]:
         chosen = st.selectbox(
@@ -281,17 +316,11 @@ try:
         )
 
         if chosen != st.session_state.folder_no:
-            st.session_state.folder_no = chosen
-            reset_card()
-            reset_write()
-            st.rerun()
+            choose_folder(chosen)
 
     with top_cols[2]:
         if st.button("Bộ sau ➡️", disabled=st.session_state.folder_no >= total_folders, use_container_width=True):
-            st.session_state.folder_no += 1
-            reset_card()
-            reset_write()
-            st.rerun()
+            choose_folder(st.session_state.folder_no + 1)
 
     cards, start_num, end_num = get_folder(cards_all, st.session_state.folder_no, folder_size)
 
@@ -335,12 +364,14 @@ try:
 
             active = f == st.session_state.folder_no
             cls = "folder-card-active" if active else "folder-card"
+            status_text = get_folder_status(f)
 
             with grid_cols[idx % 5]:
                 st.markdown(
                     f"<div class='{cls}'>"
                     f"<b>📁 Bộ {f:03d}</b><br>"
-                    f"<span class='small'>Từ {s}–{e}</span>"
+                    f"<span class='small'>Từ {s}–{e}</span><br>"
+                    f"<span class='small'>{status_text}</span>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
@@ -348,10 +379,7 @@ try:
                 label = "✅ Đang học" if active else f"Học bộ {f:03d}"
 
                 if st.button(label, key=f"choose_folder_{f}", use_container_width=True, disabled=active):
-                    st.session_state.folder_no = f
-                    reset_card()
-                    reset_write()
-                    st.rerun()
+                    choose_folder(f)
 
     with tab_flash:
         st.subheader(f"📚 Flashcard — Bộ {st.session_state.folder_no:03d}")
