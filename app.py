@@ -23,6 +23,46 @@ st.markdown("""
 .small {color:#aaa; font-size:14px;}
 .good {color:#22c55e; font-weight:800;}
 .bad {color:#ef4444; font-weight:800;}
+
+.quiz-box {
+    background: #2f3b5c;
+    border-radius: 18px;
+    padding: 28px 34px;
+    margin-top: 18px;
+    margin-bottom: 20px;
+    border: 1px solid #3f4d72;
+}
+
+.quiz-label {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 28px;
+}
+
+.quiz-question {
+    font-size: 28px;
+    font-weight: 900;
+    color: #ffffff;
+    min-height: 120px;
+    display: flex;
+    align-items: flex-start;
+}
+
+.quiz-answer-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-top: 16px;
+    margin-bottom: 10px;
+}
+
+.quiz-help {
+    text-align: right;
+    color: #c7c9ff;
+    font-weight: 800;
+    margin-top: 14px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -639,30 +679,42 @@ try:
             options = st.session_state.quiz_options
 
             st.markdown(
-                f"<div class='card'>"
-                f"<div class='korean'>{q['kr']}</div>"
-                f"</div>",
+                f"""
+                <div class="quiz-box">
+                    <div class="quiz-label">Thuật ngữ</div>
+                    <div class="quiz-question">{q["kr"]}</div>
+                    <div class="quiz-answer-title">Chọn đáp án đúng</div>
+                </div>
+                """,
                 unsafe_allow_html=True
             )
-
-            st.caption("Bấm đáp án hoặc nhấn phím số 1 / 2 / 3 / 4 trên bàn phím để chọn nhanh.")
 
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
             elif st.session_state.get("quiz_last_result") == "wrong":
                 st.error(f"Sai. Đáp án đúng: {q['vi']}")
 
-            for idx, option in enumerate(options, start=1):
-                button_label = f"Đáp án {idx}: {option}"
+            answer_cols = st.columns(2)
 
-                if st.button(button_label, key=f"quiz_option_{idx}", use_container_width=True):
-                    if option == q["vi"]:
-                        st.session_state.quiz_last_result = "correct"
-                        make_new_quiz_question()
-                        st.rerun()
-                    else:
-                        st.session_state.quiz_last_result = "wrong"
-                        st.rerun()
+            for idx, option in enumerate(options, start=1):
+                with answer_cols[(idx - 1) % 2]:
+                    button_label = f"{idx}     {option}"
+
+                    if st.button(button_label, key=f"quiz_option_{idx}", use_container_width=True):
+                        if option == q["vi"]:
+                            st.session_state.quiz_last_result = "correct"
+                            make_new_quiz_question()
+                            st.rerun()
+                        else:
+                            st.session_state.quiz_last_result = "wrong"
+                            st.rerun()
+
+            st.markdown(
+                """
+                <div class="quiz-help">⚑ Bạn không biết?</div>
+                """,
+                unsafe_allow_html=True
+            )
 
             components.html(
                 """
@@ -683,7 +735,7 @@ try:
 
                         const targetButton = buttons.find(btn => {
                             const text = (btn.innerText || "").trim();
-                            return text.startsWith("Đáp án " + key + ":");
+                            return text.startsWith(key + " ");
                         });
 
                         if (targetButton) {
