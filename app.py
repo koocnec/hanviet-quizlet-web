@@ -27,9 +27,9 @@ st.markdown("""
 .quiz-box {
     background: #2f3b5c;
     border-radius: 18px;
-    padding: 28px 34px;
+    padding: 32px 36px;
     margin-top: 18px;
-    margin-bottom: 20px;
+    margin-bottom: 22px;
     border: 1px solid #3f4d72;
 }
 
@@ -41,31 +41,31 @@ st.markdown("""
 }
 
 .quiz-question {
-    font-size: 28px;
+    font-size: 34px;
     font-weight: 900;
     color: #ffffff;
-    min-height: 120px;
+    min-height: 130px;
     display: flex;
     align-items: flex-start;
+    line-height: 1.35;
 }
 
 .quiz-answer-title {
     font-size: 15px;
     font-weight: 800;
     color: #ffffff;
-    margin-top: 16px;
-    margin-bottom: 10px;
+    margin-top: 18px;
 }
 
 .quiz-num {
-    height: 42px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 900;
     color: #ffffff;
     border: 1px solid #4b5563;
-    border-radius: 8px;
+    border-radius: 10px;
     background: #111827;
     margin-top: 2px;
 }
@@ -74,7 +74,7 @@ st.markdown("""
     text-align: right;
     color: #c7c9ff;
     font-weight: 800;
-    margin-top: 14px;
+    margin-top: 18px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -231,8 +231,6 @@ def reset_quiz():
     st.session_state.quiz_q = None
     st.session_state.quiz_options = []
     st.session_state.quiz_last_result = None
-    st.session_state.quiz_last_token = None
-    st.session_state.quiz_input = ""
 
 
 def choose_folder(folder_no):
@@ -250,7 +248,6 @@ def choose_folder(folder_no):
     reset_card()
     reset_write()
     reset_quiz()
-    st.query_params.clear()
     st.rerun()
 
 
@@ -300,8 +297,6 @@ for k, v in {
     "quiz_q": None,
     "quiz_options": [],
     "quiz_last_result": None,
-    "quiz_last_token": None,
-    "quiz_input": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -691,7 +686,6 @@ try:
 
                 st.session_state.quiz_q = new_q
                 st.session_state.quiz_options = new_options
-                st.session_state.quiz_input = ""
 
             if st.session_state.quiz_q is None or not st.session_state.quiz_options:
                 make_new_quiz_question()
@@ -734,7 +728,11 @@ try:
                         )
 
                     with btn_col:
-                        if st.button(str(option), key=f"quiz_option_{idx}", use_container_width=True):
+                        if st.button(
+                            str(option),
+                            key=f"quiz_option_{idx}",
+                            use_container_width=True
+                        ):
                             if option == q["vi"]:
                                 st.session_state.quiz_last_result = "correct"
                                 make_new_quiz_question()
@@ -742,28 +740,6 @@ try:
                             else:
                                 st.session_state.quiz_last_result = "wrong"
                                 st.rerun()
-
-            st.markdown("### Chọn nhanh")
-            quick_choice = st.text_input(
-                "Nhập số 1 / 2 / 3 / 4 rồi nhấn Enter",
-                key="quiz_input",
-                placeholder="Ví dụ: 1"
-            )
-
-            if quick_choice in ["1", "2", "3", "4"]:
-                choice_index = int(quick_choice) - 1
-
-                if 0 <= choice_index < len(options):
-                    selected_option = options[choice_index]
-
-                    if selected_option == q["vi"]:
-                        st.session_state.quiz_last_result = "correct"
-                        make_new_quiz_question()
-                        st.rerun()
-                    else:
-                        st.session_state.quiz_last_result = "wrong"
-                        st.session_state.quiz_input = ""
-                        st.rerun()
 
             st.markdown(
                 """
