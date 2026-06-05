@@ -3,12 +3,20 @@ import random
 import math
 import unicodedata
 import html
+import inspect
+from pathlib import Path
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
+APP_DIR = Path(__file__).parent
+LOGO_PATH = APP_DIR / "2612.png"
+
 DEFAULT_GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=881137373#gid=881137373"
+
+BUTTON_SUPPORTS_SHORTCUT = "shortcut" in inspect.signature(st.button).parameters
+
 
 st.markdown("""
 <style>
@@ -76,12 +84,29 @@ st.markdown("""
     font-weight: 800;
     margin-top: 18px;
 }
+
+/* Ẩn số phím tắt 1/2/3/4 hiện bên phải đáp án */
+div[data-testid="stButton"] button kbd {
+    display: none !important;
+}
+
+div[data-testid="stButton"] button [data-testid="stShortcutBadge"] {
+    display: none !important;
+}
+
+div[data-testid="stButton"] button span[data-testid="stShortcutBadge"] {
+    display: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
+
 col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
-    st.image("2612.png", width=180)
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=180)
+    else:
+        st.warning("Không tìm thấy file ảnh 2612.png")
 
 
 @st.cache_data(show_spinner=False)
@@ -231,6 +256,7 @@ def reset_quiz():
     st.session_state.quiz_q = None
     st.session_state.quiz_options = []
     st.session_state.quiz_last_result = None
+    st.session_state.quiz_round = 0
 
 
 def choose_folder(folder_no):
@@ -283,6 +309,18 @@ def get_folder_state(folder_no):
     return "Đã học"
 
 
+def make_quiz_button(label, key, shortcut):
+    kwargs = {
+        "key": key,
+        "use_container_width": True
+    }
+
+    if BUTTON_SUPPORTS_SHORTCUT:
+        kwargs["shortcut"] = shortcut
+
+    return st.button(label, **kwargs)
+
+
 for k, v in {
     "folder_no": 1,
     "card_i": 0,
@@ -297,6 +335,7 @@ for k, v in {
     "quiz_q": None,
     "quiz_options": [],
     "quiz_last_result": None,
+    "quiz_round": 0,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -310,7 +349,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.caption("Bản V7: có tiếng Hàn là tạo thẻ. Chế độ gõ bắt buộc trả lời đúng mới qua câu tiếp theo.")
+if BUTTON_SUPPORTS_SHORTCUT:
+    st.caption("Bản V10: Quiz giống Quizlet, nhấn phím 1 / 2 / 3 / 4 để chọn đáp án.")
+else:
+    st.caption("Bản V10: Click chuột chọn đáp án. Muốn dùng phím 1 / 2 / 3 / 4, hãy nâng cấp Streamlit bằng: pip install --upgrade streamlit")
 
 
 with st.sidebar:
@@ -686,18 +728,29 @@ try:
 
                 st.session_state.quiz_q = new_q
                 st.session_state.quiz_options = new_options
+                st.session_state.quiz_round = st.session_state.get("quiz_round", 0) + 1
+
+            def check_answer(selected_option, correct_answer):
+                if selected_option == correct_answer:
+                    st.session_state.quiz_last_result = "correct"
+                    make_new_quiz_question()
+                    st.rerun()
+                else:
+                    st.session_state.quiz_last_result = "wrong"
+                    st.rerun()
 
             if st.session_state.quiz_q is None or not st.session_state.quiz_options:
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
 
-            if st.button("Câu mới"):
+            if st.button("Câu mới", use_container_width=True):
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
                 st.rerun()
 
             q = st.session_state.quiz_q
             options = st.session_state.quiz_options
+            quiz_round = st.session_state.get("quiz_round", 0)
 
             st.markdown(
                 f"""
@@ -728,18 +781,16 @@ try:
                         )
 
                     with btn_col:
-                        if st.button(
+                        btn_key = f"quiz_option_{st.session_state.folder_no}_{quiz_round}_{idx}"
+
+                        clicked = make_quiz_button(
                             str(option),
-                            key=f"quiz_option_{idx}",
-                            use_container_width=True
-                        ):
-                            if option == q["vi"]:
-                                st.session_state.quiz_last_result = "correct"
-                                make_new_quiz_question()
-                                st.rerun()
-                            else:
-                                st.session_state.quiz_last_result = "wrong"
-                                st.rerun()
+                            key=btn_key,
+                            shortcut=str(idx)
+                        )
+
+                        if clicked:
+                            check_answer(option, q["vi"])
 
             st.markdown(
                 """
