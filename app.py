@@ -4,9 +4,20 @@ import math
 import unicodedata
 import html
 import inspect
+import json
+import difflib
 from pathlib import Path
+
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
+
+try:
+    from streamlit_mic_recorder import speech_to_text
+    MIC_AVAILABLE = True
+except Exception:
+    MIC_AVAILABLE = False
+
 
 st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
@@ -83,6 +94,37 @@ st.markdown("""
     color: #c7c9ff;
     font-weight: 800;
     margin-top: 18px;
+}
+
+.speaking-box {
+    border: 1px solid #4b5563;
+    border-radius: 24px;
+    padding: 34px;
+    background: #111827;
+    margin-top: 18px;
+}
+
+.speaking-target {
+    font-size: 44px;
+    font-weight: 900;
+    line-height: 1.35;
+    color: #ffffff;
+    margin-bottom: 18px;
+}
+
+.speaking-vi {
+    font-size: 22px;
+    font-weight: 700;
+    color: #d1d5db;
+    line-height: 1.45;
+    margin-bottom: 10px;
+}
+
+.speaking-detail {
+    font-size: 17px;
+    color: #9ca3af;
+    white-space: pre-wrap;
+    line-height: 1.5;
 }
 
 /* Ẩn số phím tắt 1/2/3/4 hiện bên phải đáp án */
@@ -222,6 +264,53 @@ def normalize_answer(s: str) -> str:
     return s.strip()
 
 
+def normalize_speaking_text(s: str) -> str:
+    s = clean_text(s).lower()
+    s = unicodedata.normalize("NFC", s)
+    s = re.sub(r"[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ\s]", "", s)
+    s = re.sub(r"\s+", "", s)
+    return s.strip()
+
+
+def speaking_score(target: str, spoken: str) -> float:
+    t = normalize_speaking_text(target)
+    s = normalize_speaking_text(spoken)
+
+    if not t or not s:
+        return 0.0
+
+    return difflib.SequenceMatcher(None, t, s).ratio()
+
+
+def speak_button(text, lang="ko-KR", rate=0.85):
+    safe_text = json.dumps(text)
+
+    components.html(
+        f"""
+        <button onclick='
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance({safe_text});
+            utterance.lang = "{lang}";
+            utterance.rate = {rate};
+            window.speechSynthesis.speak(utterance);
+        ' style="
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid #4b5563;
+            background: #2563eb;
+            color: white;
+            font-size: 17px;
+            font-weight: 800;
+            cursor: pointer;
+        ">
+            🔊 Nghe phát âm
+        </button>
+        """,
+        height=60
+    )
+
+
 def is_correct(user_answer: str, correct_answer: str, mode: str) -> bool:
     ua = normalize_answer(user_answer)
     ca = normalize_answer(correct_answer)
@@ -259,6 +348,13 @@ def reset_quiz():
     st.session_state.quiz_round = 0
 
 
+def reset_speaking():
+    st.session_state.speaking_i = 0
+    st.session_state.speaking_cards_order = []
+    st.session_state.speaking_last_text = ""
+    st.session_state.speaking_last_score = None
+
+
 def choose_folder(folder_no):
     if "folder_learn_count" not in st.session_state:
         st.session_state.folder_learn_count = {}
@@ -274,6 +370,7 @@ def choose_folder(folder_no):
     reset_card()
     reset_write()
     reset_quiz()
+    reset_speaking()
     st.rerun()
 
 
@@ -336,6 +433,10 @@ for k, v in {
     "quiz_options": [],
     "quiz_last_result": None,
     "quiz_round": 0,
+    "speaking_i": 0,
+    "speaking_cards_order": [],
+    "speaking_last_text": "",
+    "speaking_last_score": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -350,9 +451,9 @@ st.markdown(
 )
 
 if BUTTON_SUPPORTS_SHORTCUT:
-    st.caption("Bản V10: Quiz giống Quizlet, nhấn phím 1 / 2 / 3 / 4 để chọn đáp án.")
+    st.caption("Bản V11: Có thêm Speaking, nghe phát âm và luyện nói tiếng Hàn.")
 else:
-    st.caption("Bản V10: Click chuột chọn đáp án. Muốn dùng phím 1 / 2 / 3 / 4, hãy nâng cấp Streamlit bằng: pip install --upgrade streamlit")
+    st.caption("Bản V11: Có thêm Speaking. Muốn dùng phím 1 / 2 / 3 / 4, hãy nâng cấp Streamlit bằng: pip install --upgrade streamlit")
 
 
 with st.sidebar:
@@ -451,12 +552,13 @@ try:
         f"từ {start_num}–{end_num} | {len(cards)} thẻ"
     )
 
-    tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_match, tab_search, tab_data = st.tabs([
+    tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
         "📁 Thư mục",
         "📚 Flashcard",
         "⌨️ Gõ văn bản",
         "🎓 Học",
         "📝 Quiz",
+        "🎙️ Speaking",
         "🧩 Ghép cặp",
         "🔎 Tìm kiếm",
         "📋 Dữ liệu"
@@ -464,7 +566,7 @@ try:
 
     with tab_folder:
         st.subheader("📁 Thư mục")
-        st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz để học đúng bộ đó.")
+        st.write("Bấm chọn bộ bên dưới. Sau đó qua Flashcard / Gõ văn bản / Quiz / Speaking để học đúng bộ đó.")
 
         col_sort, col_filter, col_empty = st.columns([2, 1, 3])
 
@@ -548,27 +650,30 @@ try:
                 unsafe_allow_html=True
             )
 
-        b1, b2, b3, b4 = st.columns(4)
+        fb1, fb2, fb3, fb4, fb5 = st.columns(5)
 
-        if b1.button("⬅️ Trước", use_container_width=True):
+        if fb1.button("⬅️ Trước", use_container_width=True):
             st.session_state.card_i = (i - 1) % len(cards)
             st.session_state.show_answer = False
             st.rerun()
 
-        if b2.button("👁️ Hiện/ẩn", use_container_width=True):
+        if fb2.button("👁️ Hiện/ẩn", use_container_width=True):
             st.session_state.show_answer = not st.session_state.show_answer
             st.rerun()
 
-        if b3.button("➡️ Sau", use_container_width=True):
+        if fb3.button("➡️ Sau", use_container_width=True):
             st.session_state.card_i = (i + 1) % len(cards)
             st.session_state.show_answer = False
             st.rerun()
 
-        if b4.button("🔀 Trộn bộ", use_container_width=True):
+        if fb4.button("🔀 Trộn bộ", use_container_width=True):
             random.shuffle(cards)
             st.session_state.card_i = 0
             st.session_state.show_answer = False
             st.rerun()
+
+        with fb5:
+            speak_button(card["kr"])
 
     with tab_write:
         st.subheader(f"⌨️ Kiểm tra bằng gõ văn bản — Bộ {st.session_state.folder_no:03d}")
@@ -700,6 +805,8 @@ try:
             unsafe_allow_html=True
         )
 
+        speak_button(c["kr"])
+
         ans = st.text_input("Nhập nghĩa tiếng Việt:")
 
         if st.button("Kiểm tra"):
@@ -763,6 +870,8 @@ try:
                 unsafe_allow_html=True
             )
 
+            speak_button(q["kr"])
+
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
             elif st.session_state.get("quiz_last_result") == "wrong":
@@ -798,6 +907,127 @@ try:
                 """,
                 unsafe_allow_html=True
             )
+
+    with tab_speaking:
+        st.subheader(f"🎙️ Speaking — Luyện nói tiếng Hàn — Bộ {st.session_state.folder_no:03d}")
+        st.caption("Bấm nghe phát âm, sau đó bấm micro và đọc theo câu tiếng Hàn. App sẽ chấm độ giống.")
+
+        if not MIC_AVAILABLE:
+            st.error("Bạn chưa cài thư viện streamlit-mic-recorder.")
+            st.code("pip install streamlit-mic-recorder", language="bash")
+            st.info("Sau khi cài xong, deploy lại Streamlit.")
+        else:
+            speaking_mode = st.radio(
+                "Chọn kiểu luyện nói",
+                ["Luyện theo thuật ngữ tiếng Hàn", "Luyện theo ví dụ/giải thích nếu có"],
+                horizontal=True,
+                key="speaking_mode"
+            )
+
+            speaking_order_key = f"{st.session_state.folder_no}_{folder_size}_{speaking_mode}"
+
+            if (
+                not st.session_state.speaking_cards_order
+                or st.session_state.get("speaking_order_key") != speaking_order_key
+            ):
+                st.session_state.speaking_order_key = speaking_order_key
+                st.session_state.speaking_cards_order = cards.copy()
+                random.shuffle(st.session_state.speaking_cards_order)
+                st.session_state.speaking_i = 0
+                st.session_state.speaking_last_text = ""
+                st.session_state.speaking_last_score = None
+
+            sc = st.session_state.speaking_cards_order[
+                st.session_state.speaking_i % len(st.session_state.speaking_cards_order)
+            ]
+
+            target_text = sc["kr"]
+
+            if speaking_mode == "Luyện theo ví dụ/giải thích nếu có":
+                if sc["detail"]:
+                    target_text = sc["detail"]
+                else:
+                    target_text = sc["kr"]
+
+            st.progress(
+                (st.session_state.speaking_i % len(st.session_state.speaking_cards_order)) /
+                max(1, len(st.session_state.speaking_cards_order))
+            )
+
+            st.write(f"Câu: **{(st.session_state.speaking_i % len(st.session_state.speaking_cards_order)) + 1}/{len(st.session_state.speaking_cards_order)}**")
+
+            st.markdown(
+                f"""
+                <div class="speaking-box">
+                    <div class="speaking-target">{html.escape(target_text)}</div>
+                    <div class="speaking-vi">{html.escape(sc["vi"])}</div>
+                    <div class="speaking-detail">{html.escape(sc["detail"])}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            sp_col1, sp_col2, sp_col3 = st.columns(3)
+
+            with sp_col1:
+                speak_button(target_text)
+
+            with sp_col2:
+                if st.button("➡️ Câu tiếp theo", use_container_width=True):
+                    st.session_state.speaking_i = (
+                        st.session_state.speaking_i + 1
+                    ) % len(st.session_state.speaking_cards_order)
+                    st.session_state.speaking_last_text = ""
+                    st.session_state.speaking_last_score = None
+                    st.rerun()
+
+            with sp_col3:
+                if st.button("🔀 Trộn lại", use_container_width=True):
+                    random.shuffle(st.session_state.speaking_cards_order)
+                    st.session_state.speaking_i = 0
+                    st.session_state.speaking_last_text = ""
+                    st.session_state.speaking_last_score = None
+                    st.rerun()
+
+            st.markdown("### 🎤 Bấm nút dưới để nói")
+
+            spoken_text = speech_to_text(
+                language="ko-KR",
+                start_prompt="🎙️ Bấm để nói",
+                stop_prompt="⏹️ Dừng ghi âm",
+                just_once=True,
+                use_container_width=True,
+                key=f"speech_{st.session_state.folder_no}_{st.session_state.speaking_i}_{speaking_mode}"
+            )
+
+            if spoken_text:
+                score = speaking_score(target_text, spoken_text)
+                st.session_state.speaking_last_text = spoken_text
+                st.session_state.speaking_last_score = score
+
+            if st.session_state.speaking_last_text:
+                st.markdown("### Kết quả")
+                st.write("Bạn đã nói:")
+                st.success(st.session_state.speaking_last_text)
+
+                score = st.session_state.speaking_last_score or 0
+                st.write(f"Độ giống: **{score:.0%}**")
+                st.progress(score)
+
+                if score >= 0.85:
+                    st.success("Rất tốt! Phát âm khá giống ✅")
+                elif score >= 0.6:
+                    st.warning("Khá ổn, nhưng nên đọc chậm và rõ hơn.")
+                else:
+                    st.error("Chưa giống lắm. Hãy bấm nghe lại rồi nói lại.")
+
+                with st.expander("So sánh"):
+                    st.write("Câu gốc:")
+                    st.info(target_text)
+                    st.write("Bạn nói:")
+                    st.warning(st.session_state.speaking_last_text)
+
+            st.info("Lưu ý: tính năng micro hoạt động tốt nhất trên Chrome/Cốc Cốc và cần cho phép quyền Micro.")
 
     with tab_match:
         st.subheader(f"🧩 Ghép cặp — Bộ {st.session_state.folder_no:03d}")
