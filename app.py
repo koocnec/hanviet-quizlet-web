@@ -1002,12 +1002,33 @@ try:
         if len(valid_for_quiz) < 4:
             st.warning("Cần ít nhất 4 thẻ để làm quiz.")
         else:
+                        def pick_one_answer(card):
+                answers = answer_variants(card.get("vi", ""), card.get("synonyms", ""))
+
+                if not answers:
+                    answers = [card.get("kr", "")]
+
+                answers = [x for x in answers if clean_text(x)]
+
+                if not answers:
+                    return ""
+
+                return random.choice(answers)
+
             def make_new_quiz_question():
                 new_q = random.choice(valid_for_quiz)
-                answer_text = format_expected_answer(new_q.get("vi", ""), new_q.get("synonyms", ""))
 
-                if not answer_text:
-                    answer_text = new_q.get("kr", "")
+                correct_variants = answer_variants(
+                    new_q.get("vi", ""),
+                    new_q.get("synonyms", "")
+                )
+
+                if not correct_variants:
+                    correct_variants = [new_q.get("kr", "")]
+
+                correct_variants = [x for x in correct_variants if clean_text(x)]
+
+                correct_option = random.choice(correct_variants)
 
                 new_wrong_pool = [
                     x for x in valid_for_quiz
@@ -1015,25 +1036,37 @@ try:
                 ]
 
                 wrong_answers = []
+                random.shuffle(new_wrong_pool)
 
-                for x in random.sample(new_wrong_pool, min(3, len(new_wrong_pool))):
-                    wrong_text = format_expected_answer(x.get("vi", ""), x.get("synonyms", ""))
+                for x in new_wrong_pool:
+                    wrong_text = pick_one_answer(x)
 
-                    if not wrong_text:
-                        wrong_text = x.get("kr", "")
+                    if (
+                        wrong_text
+                        and normalize_answer(wrong_text) not in [normalize_answer(a) for a in correct_variants]
+                        and normalize_answer(wrong_text) not in [normalize_answer(a) for a in wrong_answers]
+                    ):
+                        wrong_answers.append(wrong_text)
 
-                    wrong_answers.append(wrong_text)
+                    if len(wrong_answers) >= 3:
+                        break
 
-                new_options = [answer_text] + wrong_answers
+                new_options = [correct_option] + wrong_answers
                 random.shuffle(new_options)
 
                 st.session_state.quiz_q = new_q
-                st.session_state.quiz_correct = answer_text
+                st.session_state.quiz_correct = correct_option
+                st.session_state.quiz_correct_variants = correct_variants
                 st.session_state.quiz_options = new_options
                 st.session_state.quiz_round = st.session_state.get("quiz_round", 0) + 1
 
-            def check_answer(selected_option, correct_answer):
-                if selected_option == correct_answer:
+            def check_answer(selected_option):
+                correct_variants = st.session_state.get("quiz_correct_variants", [])
+
+                selected_norm = normalize_answer(selected_option)
+                correct_norms = [normalize_answer(x) for x in correct_variants]
+
+                if selected_norm in correct_norms:
                     st.session_state.quiz_last_result = "correct"
                     make_new_quiz_question()
                     st.rerun()
@@ -1071,7 +1104,10 @@ try:
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
             elif st.session_state.get("quiz_last_result") == "wrong":
-                st.error(f"Sai. Đáp án đúng: {correct_answer}")
+                st.error(
+    "Sai. Các đáp án đúng là: "
+    + " / ".join(st.session_state.get("quiz_correct_variants", []))
+)
 
             answer_cols = st.columns(2)
 
@@ -1095,7 +1131,7 @@ try:
                         )
 
                         if clicked:
-                            check_answer(option, correct_answer)
+                            check_answer(option)
 
     with tab_speaking:
         st.subheader(f"🎙️ Speaking — Luyện nói tiếng Hàn — Bộ {st.session_state.folder_no:03d}")
