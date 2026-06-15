@@ -37,6 +37,7 @@ st.markdown("""
 .korean {font-size:64px; font-weight:900; margin-bottom:35px; line-height:1.25;}
 .meaning {font-size:28px; font-weight:800; margin-bottom:25px; white-space:pre-wrap; line-height:1.45;}
 .detail {font-size:18px; color:#aaa; white-space:pre-wrap; line-height:1.55;}
+.synonyms {font-size:20px; color:#93c5fd; white-space:pre-wrap; line-height:1.5; margin-top:12px;}
 .folder-card {border:1px solid #555; border-radius:18px; padding:18px; margin:8px 0; background:#141a25;}
 .folder-card-active {border:2px solid #22c55e; border-radius:18px; padding:18px; margin:8px 0; background:#10251a;}
 .small {color:#aaa; font-size:14px;}
@@ -127,7 +128,6 @@ st.markdown("""
     line-height: 1.5;
 }
 
-/* Ẩn số phím tắt 1/2/3/4 hiện bên phải đáp án */
 div[data-testid="stButton"] button kbd {
     display: none !important;
 }
@@ -201,15 +201,17 @@ def clean_text(x):
     return s
 
 
-def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str):
+def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str, synonym_col: str):
     ki = col_letter_to_index(kr_col)
     vi = col_letter_to_index(vi_col)
     di = col_letter_to_index(detail_col) if detail_col else None
+    si = col_letter_to_index(synonym_col) if synonym_col else None
 
     cards = []
     raw_rows = 0
     missing_vi = 0
     missing_detail = 0
+    missing_synonyms = 0
     skipped_no_kr = 0
 
     for idx, row in df.iterrows():
@@ -219,6 +221,7 @@ def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str):
         kr = clean_text(vals[ki]) if ki < len(vals) else ""
         mean = clean_text(vals[vi]) if vi < len(vals) else ""
         detail = clean_text(vals[di]) if di is not None and di < len(vals) else ""
+        synonyms = clean_text(vals[si]) if si is not None and si < len(vals) else ""
 
         if not kr:
             skipped_no_kr += 1
@@ -231,12 +234,16 @@ def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str):
         if not detail:
             missing_detail += 1
 
+        if not synonyms:
+            missing_synonyms += 1
+
         cards.append({
             "stt": len(cards) + 1,
             "dong_goc": idx + 2,
             "kr": kr,
             "vi": mean,
-            "detail": detail
+            "detail": detail,
+            "synonyms": synonyms
         })
 
     stats = {
@@ -244,6 +251,7 @@ def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str):
         "cards": len(cards),
         "missing_vi": missing_vi,
         "missing_detail": missing_detail,
+        "missing_synonyms": missing_synonyms,
         "skipped_no_kr": skipped_no_kr,
     }
 
@@ -262,6 +270,33 @@ def normalize_answer(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     s = re.sub(r"[.,;:!?()\[\]{}'\"`~]", "", s)
     return s.strip()
+
+
+def split_answer_parts(text: str):
+    parts = re.split(r"[\n/|,;]+", clean_text(text))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def answer_variants(correct_answer: str, extra_answers: str = ""):
+    variants = [clean_text(correct_answer)]
+    variants.extend(split_answer_parts(correct_answer))
+    variants.extend(split_answer_parts(extra_answers))
+
+    unique = []
+    seen = set()
+
+    for item in variants:
+        norm = normalize_answer(item)
+
+        if item and norm and norm not in seen:
+            unique.append(item)
+            seen.add(norm)
+
+    return unique
+
+
+def format_expected_answer(correct_answer: str, extra_answers: str = "") -> str:
+    return " / ".join(answer_variants(correct_answer, extra_answers))
 
 
 def normalize_speaking_text(s: str) -> str:
@@ -311,20 +346,20 @@ def speak_button(text, lang="ko-KR", rate=0.85):
     )
 
 
-def is_correct(user_answer: str, correct_answer: str, mode: str) -> bool:
+def is_correct(user_answer: str, correct_answer: str, mode: str, extra_answers: str = "") -> bool:
     ua = normalize_answer(user_answer)
-    ca = normalize_answer(correct_answer)
 
-    if not ua or not ca:
+    if not ua:
         return False
 
     if mode == "Gõ tiếng Hàn theo nghĩa":
-        return ua == ca
+        ca = normalize_answer(correct_answer)
+        return bool(ca) and ua == ca
 
-    parts = re.split(r"[\n/|,;]+", ca)
-    parts = [p.strip() for p in parts if p.strip()]
+    valid_answers = [normalize_answer(x) for x in answer_variants(correct_answer, extra_answers)]
+    valid_answers = [x for x in valid_answers if x]
 
-    return ua == ca or ua in parts or any(ua == p for p in parts)
+    return ua in valid_answers
 
 
 def reset_card():
@@ -371,6 +406,8 @@ def choose_folder(folder_no):
     reset_write()
     reset_quiz()
     reset_speaking()
+    st.session_state.learn_show_answer = False
+    st.session_state.pop("learn_card", None)
     st.rerun()
 
 
@@ -437,6 +474,7 @@ for k, v in {
     "speaking_cards_order": [],
     "speaking_last_text": "",
     "speaking_last_score": None,
+    "learn_show_answer": False,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -451,9 +489,9 @@ st.markdown(
 )
 
 if BUTTON_SUPPORTS_SHORTCUT:
-    st.caption("Bản V11: Có thêm Speaking, nghe phát âm và luyện nói tiếng Hàn.")
+    st.caption("Bản V12: Có thêm Speaking và cột từ đồng nghĩa để chấp nhận nhiều đáp án đúng.")
 else:
-    st.caption("Bản V11: Có thêm Speaking. Muốn dùng phím 1 / 2 / 3 / 4, hãy nâng cấp Streamlit bằng: pip install --upgrade streamlit")
+    st.caption("Bản V12: Có thêm Speaking và từ đồng nghĩa. Muốn dùng phím 1 / 2 / 3 / 4, hãy nâng cấp Streamlit bằng: pip install --upgrade streamlit")
 
 
 with st.sidebar:
@@ -475,11 +513,13 @@ with st.sidebar:
         uploaded = st.file_uploader("Upload Excel/CSV", type=["xlsx", "xlsm", "csv"])
 
     st.header("2) Chọn cột")
-    st.caption("File của bạn thường là: B = tiếng Hàn, A = nghĩa Việt, C = giải thích.")
+    st.caption("File của bạn thường là: B = tiếng Hàn, A = nghĩa Việt, C = giải thích, D = từ đồng nghĩa.")
 
     kr_col = st.text_input("Cột tiếng Hàn", value="B")
     vi_col = st.text_input("Cột nghĩa tiếng Việt", value="A")
     detail_col = st.text_input("Cột giải thích", value="C")
+    synonym_col = st.text_input("Cột từ đồng nghĩa / đáp án thay thế", value="D")
+    st.caption("Trong cột từ đồng nghĩa, có thể nhập nhiều đáp án bằng dấu /, dấu phẩy, dấu ; hoặc xuống dòng.")
 
     st.header("3) Chia thư mục")
     folder_size = int(st.number_input("Số từ mỗi thư mục", min_value=10, max_value=500, value=50, step=10))
@@ -501,7 +541,7 @@ try:
         st.warning("Hãy dán link Google Sheets hoặc upload file để bắt đầu.")
         st.stop()
 
-    cards_all, stats = make_cards(df, kr_col, vi_col, detail_col)
+    cards_all, stats = make_cards(df, kr_col, vi_col, detail_col, synonym_col)
 
     if not cards_all:
         st.error("Không đọc được thẻ. Cột tiếng Hàn đang trống hoặc bạn chọn sai cột tiếng Hàn.")
@@ -518,11 +558,12 @@ try:
         f"Đã chia thành {total_folders} thư mục, mỗi thư mục {folder_size} từ."
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Thẻ đã tạo", f"{stats['cards']:,}")
     c2.metric("Thiếu nghĩa", f"{stats['missing_vi']:,}")
     c3.metric("Thiếu giải thích", f"{stats['missing_detail']:,}")
-    c4.metric("Bỏ qua vì thiếu tiếng Hàn", f"{stats['skipped_no_kr']:,}")
+    c4.metric("Thiếu đồng nghĩa", f"{stats['missing_synonyms']:,}")
+    c5.metric("Bỏ qua vì thiếu tiếng Hàn", f"{stats['skipped_no_kr']:,}")
 
     top_cols = st.columns([1, 2, 1])
 
@@ -631,12 +672,17 @@ try:
         card = cards[i]
 
         st.markdown(f"### Thẻ {i + 1}/{len(cards)}")
+        synonym_html = (
+            f"<div class='synonyms'><b>Đồng nghĩa:</b> {html.escape(card['synonyms'])}</div>"
+            if card["synonyms"] else ""
+        )
 
         if st.session_state.show_answer:
             st.markdown(
                 f"<div class='card'>"
                 f"<div class='korean'>{html.escape(card['kr'])}</div>"
                 f"<div class='meaning'>{html.escape(card['vi'])}</div>"
+                f"{synonym_html}"
                 f"<div class='detail'>{html.escape(card['detail'])}</div>"
                 f"</div>",
                 unsafe_allow_html=True
@@ -712,7 +758,7 @@ try:
             last = st.session_state.write_last
 
             if last["ok"]:
-                st.success(f"Câu trước: Đúng ✅ | {last['kr']} = {last['vi']}")
+                st.success(f"Câu trước: Đúng ✅ | {last['kr']} = {last['answer']}")
             else:
                 st.error(f"Câu trước: Sai ❌ | Bạn nhập: {last['user']} | Đáp án: {last['answer']}")
 
@@ -720,12 +766,16 @@ try:
             prompt_main = wc["vi"]
             prompt_sub = wc["detail"]
             expected = wc["kr"]
+            extra_answers = ""
             label = "Nhập tiếng Hàn rồi nhấn Enter"
         else:
             prompt_main = wc["kr"]
-            prompt_sub = ""
+            prompt_sub = wc["detail"]
             expected = wc["vi"]
+            extra_answers = wc["synonyms"]
             label = "Nhập nghĩa tiếng Việt rồi nhấn Enter"
+
+        shown_answer = format_expected_answer(expected, extra_answers)
 
         st.markdown(
             f"<div class='card'>"
@@ -740,7 +790,7 @@ try:
             submitted = st.form_submit_button("Enter / Chấm & câu tiếp theo", use_container_width=True)
 
         if submitted:
-            ok = is_correct(user_ans, expected, mode)
+            ok = is_correct(user_ans, expected, mode, extra_answers)
             st.session_state.write_total += 1
 
             if ok:
@@ -748,7 +798,7 @@ try:
                 st.session_state.write_last = {
                     "ok": True,
                     "user": user_ans,
-                    "answer": expected,
+                    "answer": shown_answer,
                     "kr": wc["kr"],
                     "vi": wc["vi"]
                 }
@@ -759,7 +809,7 @@ try:
                 st.session_state.write_last = {
                     "ok": False,
                     "user": user_ans,
-                    "answer": expected,
+                    "answer": shown_answer,
                     "kr": wc["kr"],
                     "vi": wc["vi"]
                 }
@@ -772,7 +822,7 @@ try:
             st.session_state.write_last = {
                 "ok": False,
                 "user": "Đã xem đáp án",
-                "answer": expected,
+                "answer": shown_answer,
                 "kr": wc["kr"],
                 "vi": wc["vi"]
             }
@@ -795,12 +845,18 @@ try:
 
         if "learn_card" not in st.session_state or st.button("Từ mới"):
             st.session_state.learn_card = random.choice(cards)
+            st.session_state.learn_show_answer = False
 
         c = st.session_state.learn_card
+        learn_synonym_html = (
+            f"<div class='synonyms'><b>Đồng nghĩa:</b> {html.escape(c['synonyms'])}</div>"
+            if c["synonyms"] else ""
+        )
 
         st.markdown(
             f"<div class='card'>"
             f"<div class='korean'>{html.escape(c['kr'])}</div>"
+            f"{learn_synonym_html if st.session_state.get('learn_show_answer') else ''}"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -810,7 +866,12 @@ try:
         ans = st.text_input("Nhập nghĩa tiếng Việt:")
 
         if st.button("Kiểm tra"):
-            st.success(c["vi"])
+            st.session_state.learn_show_answer = True
+
+            if is_correct(ans, c["vi"], "Gõ nghĩa tiếng Việt theo tiếng Hàn", c["synonyms"]):
+                st.success(f"Đúng rồi: {format_expected_answer(c['vi'], c['synonyms'])}")
+            else:
+                st.warning(f"Đáp án: {format_expected_answer(c['vi'], c['synonyms'])}")
 
             if c["detail"]:
                 st.info(c["detail"])
@@ -875,7 +936,7 @@ try:
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
             elif st.session_state.get("quiz_last_result") == "wrong":
-                st.error(f"Sai. Đáp án đúng: {q['vi']}")
+                st.error(f"Sai. Đáp án đúng: {format_expected_answer(q['vi'], q['synonyms'])}")
 
             answer_cols = st.columns(2)
 
@@ -961,6 +1022,7 @@ try:
                 <div class="speaking-box">
                     <div class="speaking-target">{html.escape(target_text)}</div>
                     <div class="speaking-vi">{html.escape(sc["vi"])}</div>
+                    {f'<div class="synonyms"><b>Đồng nghĩa:</b> {html.escape(sc["synonyms"])}</div>' if sc["synonyms"] else ''}
                     <div class="speaking-detail">{html.escape(sc["detail"])}</div>
                 </div>
                 """,
@@ -1060,7 +1122,7 @@ try:
     with tab_search:
         st.subheader("🔎 Tìm kiếm toàn bộ dữ liệu")
 
-        kw = st.text_input("Nhập từ tiếng Hàn hoặc nghĩa tiếng Việt")
+        kw = st.text_input("Nhập từ tiếng Hàn, nghĩa tiếng Việt hoặc từ đồng nghĩa")
 
         if kw:
             kwl = kw.lower()
@@ -1070,6 +1132,7 @@ try:
                 if kwl in x["kr"].lower()
                 or kwl in x["vi"].lower()
                 or kwl in x["detail"].lower()
+                or kwl in x["synonyms"].lower()
             ]
 
             st.write(f"Tìm thấy {len(res)} kết quả")
