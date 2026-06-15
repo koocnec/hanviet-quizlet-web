@@ -691,7 +691,7 @@ try:
 
         btn1, btn2, btn3, btn4 = st.columns(4)
 
-        if btn1.button("⬅️ Trước", use_container_width=True, disabled=edit_i <= 0):
+        if btn1.button("⬅️ Trước", key="editor_prev_btn", use_container_width=True, disabled=edit_i <= 0):
             st.session_state.editor_i -= 1
             st.rerun()
 
@@ -714,7 +714,7 @@ try:
             st.session_state.editor_i = max(0, edit_i - 1)
             st.rerun()
 
-        if btn4.button("Sau ➡️", use_container_width=True, disabled=edit_i >= len(st.session_state.editor_cards) - 1):
+        if btn4.button("Sau ➡️", key="editor_next_btn", use_container_width=True, disabled=edit_i >= len(st.session_state.editor_cards) - 1):
             st.session_state.editor_i += 1
             st.rerun()
 
@@ -823,7 +823,7 @@ try:
 
         fb1, fb2, fb3, fb4, fb5 = st.columns(5)
 
-        if fb1.button("⬅️ Trước", use_container_width=True):
+        if fb1.button("⬅️ Trước", key="flash_prev_btn", use_container_width=True):
             st.session_state.card_i = (i - 1) % len(cards)
             st.session_state.show_answer = False
             st.rerun()
@@ -832,7 +832,7 @@ try:
             st.session_state.show_answer = not st.session_state.show_answer
             st.rerun()
 
-        if fb3.button("➡️ Sau", use_container_width=True):
+        if fb3.button("➡️ Sau", key="flash_next_btn", use_container_width=True):
             st.session_state.card_i = (i + 1) % len(cards)
             st.session_state.show_answer = False
             st.rerun()
