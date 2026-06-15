@@ -1002,8 +1002,11 @@ try:
         if len(valid_for_quiz) < 4:
             st.warning("Cần ít nhất 4 thẻ để làm quiz.")
         else:
-                        def pick_one_answer(card):
-                answers = answer_variants(card.get("vi", ""), card.get("synonyms", ""))
+            def pick_one_answer(card):
+                answers = answer_variants(
+                    card.get("vi", ""),
+                    card.get("synonyms", "")
+                )
 
                 if not answers:
                     answers = [card.get("kr", "")]
@@ -1027,7 +1030,6 @@ try:
                     correct_variants = [new_q.get("kr", "")]
 
                 correct_variants = [x for x in correct_variants if clean_text(x)]
-
                 correct_option = random.choice(correct_variants)
 
                 new_wrong_pool = [
@@ -1038,13 +1040,16 @@ try:
                 wrong_answers = []
                 random.shuffle(new_wrong_pool)
 
+                correct_norms = [normalize_answer(a) for a in correct_variants]
+
                 for x in new_wrong_pool:
                     wrong_text = pick_one_answer(x)
+                    wrong_norm = normalize_answer(wrong_text)
 
                     if (
                         wrong_text
-                        and normalize_answer(wrong_text) not in [normalize_answer(a) for a in correct_variants]
-                        and normalize_answer(wrong_text) not in [normalize_answer(a) for a in wrong_answers]
+                        and wrong_norm not in correct_norms
+                        and wrong_norm not in [normalize_answer(a) for a in wrong_answers]
                     ):
                         wrong_answers.append(wrong_text)
 
@@ -1078,7 +1083,7 @@ try:
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
 
-            if st.button("Câu mới", use_container_width=True):
+            if st.button("Câu mới", key="quiz_new_btn", use_container_width=True):
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
                 st.rerun()
@@ -1086,7 +1091,6 @@ try:
             q = st.session_state.quiz_q
             options = st.session_state.quiz_options
             quiz_round = st.session_state.get("quiz_round", 0)
-            correct_answer = st.session_state.get("quiz_correct", "")
 
             st.markdown(
                 f"""
@@ -1105,9 +1109,9 @@ try:
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
             elif st.session_state.get("quiz_last_result") == "wrong":
                 st.error(
-    "Sai. Các đáp án đúng là: "
-    + " / ".join(st.session_state.get("quiz_correct_variants", []))
-)
+                    "Sai. Các đáp án đúng là: "
+                    + " / ".join(st.session_state.get("quiz_correct_variants", []))
+                )
 
             answer_cols = st.columns(2)
 
