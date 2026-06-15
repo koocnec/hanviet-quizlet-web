@@ -545,11 +545,20 @@ try:
     )
 
     if st.session_state.editor_data_key != data_key:
-        st.session_state.editor_data_key = data_key
-        st.session_state.editor_cards = [dict(x) for x in loaded_cards]
-        st.session_state.editor_i = 0
+    st.session_state.editor_data_key = data_key
+    st.session_state.editor_cards = [{
+        "stt": 1,
+        "dong_goc": "",
+        "kr": "",
+        "vi": "",
+        "detail": "",
+        "synonyms": "",
+        "pronunciation": "",
+        "word_type": "",
+    }]
+    st.session_state.editor_i = 0
 
-    cards_all = st.session_state.editor_cards
+cards_all = loaded_cards
     stats = make_stats(cards_all)
 
     total = len(cards_all)
