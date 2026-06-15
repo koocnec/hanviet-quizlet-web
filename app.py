@@ -19,7 +19,7 @@ except Exception:
     MIC_AVAILABLE = False
 
 
-st.set_page_config(page_title="Bùi Văn Toàn V12", page_icon="📁", layout="wide")
+st.set_page_config(page_title="Bùi Văn Toàn V5", page_icon="📁", layout="wide")
 
 APP_DIR = Path(__file__).parent
 LOGO_PATH = APP_DIR / "2612.png"
@@ -32,6 +32,7 @@ BUTTON_SUPPORTS_SHORTCUT = "shortcut" in inspect.signature(st.button).parameters
 st.markdown("""
 <style>
 .main-title {font-size: 46px; font-weight: 900; margin-bottom: 0px;}
+.version-badge {display:inline-block; background:#22c55e; color:white; padding:6px 12px; border-radius:999px; font-weight:800; margin-left:10px;}
 .card {border:1px solid #666; border-radius:26px; padding:50px; text-align:center; min-height:320px; background:#0f1117;}
 .korean {font-size:64px; font-weight:900; margin-bottom:35px; line-height:1.25;}
 .meaning {font-size:28px; font-weight:800; margin-bottom:25px; white-space:pre-wrap; line-height:1.45;}
@@ -40,21 +41,104 @@ st.markdown("""
 .folder-card {border:1px solid #555; border-radius:18px; padding:18px; margin:8px 0; background:#141a25;}
 .folder-card-active {border:2px solid #22c55e; border-radius:18px; padding:18px; margin:8px 0; background:#10251a;}
 .small {color:#aaa; font-size:14px;}
-.quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72;}
-.quiz-label {font-size:15px; font-weight:800; color:#fff; margin-bottom:28px;}
-.quiz-question {font-size:34px; font-weight:900; color:#fff; min-height:130px; display:flex; align-items:flex-start; line-height:1.35;}
-.quiz-answer-title {font-size:15px; font-weight:800; color:#fff; margin-top:18px;}
-.quiz-num {height:48px; display:flex; align-items:center; justify-content:center; font-weight:900; color:#fff; border:1px solid #4b5563; border-radius:10px; background:#111827; margin-top:2px;}
-.quiz-help {text-align:right; color:#c7c9ff; font-weight:800; margin-top:18px;}
-.speaking-box {border:1px solid #4b5563; border-radius:24px; padding:34px; background:#111827; margin-top:18px;}
-.speaking-target {font-size:44px; font-weight:900; line-height:1.35; color:#fff; margin-bottom:18px;}
-.speaking-vi {font-size:22px; font-weight:700; color:#d1d5db; line-height:1.45; margin-bottom:10px;}
-.speaking-detail {font-size:17px; color:#9ca3af; white-space:pre-wrap; line-height:1.5;}
-.editor-card {background:#111827; border:1px solid #1f2937; border-radius:14px; padding:18px; margin-top:16px; margin-bottom:14px;}
-.editor-index {font-size:18px; font-weight:900; color:white;}
-div[data-testid="stButton"] button kbd {display:none !important;}
-div[data-testid="stButton"] button [data-testid="stShortcutBadge"] {display:none !important;}
-div[data-testid="stButton"] button span[data-testid="stShortcutBadge"] {display:none !important;}
+.good {color:#22c55e; font-weight:800;}
+.bad {color:#ef4444; font-weight:800;}
+
+.quiz-box {
+    background: #2f3b5c;
+    border-radius: 18px;
+    padding: 32px 36px;
+    margin-top: 18px;
+    margin-bottom: 22px;
+    border: 1px solid #3f4d72;
+}
+
+.quiz-label {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 28px;
+}
+
+.quiz-question {
+    font-size: 34px;
+    font-weight: 900;
+    color: #ffffff;
+    min-height: 130px;
+    display: flex;
+    align-items: flex-start;
+    line-height: 1.35;
+}
+
+.quiz-answer-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-top: 18px;
+}
+
+.quiz-num {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    color: #ffffff;
+    border: 1px solid #4b5563;
+    border-radius: 10px;
+    background: #111827;
+    margin-top: 2px;
+}
+
+.quiz-help {
+    text-align: right;
+    color: #c7c9ff;
+    font-weight: 800;
+    margin-top: 18px;
+}
+
+.speaking-box {
+    border: 1px solid #4b5563;
+    border-radius: 24px;
+    padding: 34px;
+    background: #111827;
+    margin-top: 18px;
+}
+
+.speaking-target {
+    font-size: 44px;
+    font-weight: 900;
+    line-height: 1.35;
+    color: #ffffff;
+    margin-bottom: 18px;
+}
+
+.speaking-vi {
+    font-size: 22px;
+    font-weight: 700;
+    color: #d1d5db;
+    line-height: 1.45;
+    margin-bottom: 10px;
+}
+
+.speaking-detail {
+    font-size: 17px;
+    color: #9ca3af;
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
+div[data-testid="stButton"] button kbd {
+    display: none !important;
+}
+
+div[data-testid="stButton"] button [data-testid="stShortcutBadge"] {
+    display: none !important;
+}
+
+div[data-testid="stButton"] button span[data-testid="stShortcutBadge"] {
+    display: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -63,13 +147,15 @@ col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
     if LOGO_PATH.exists():
         st.image(str(LOGO_PATH), width=180)
+    else:
+        st.warning("Không tìm thấy file ảnh 2612.png")
 
 
 @st.cache_data(show_spinner=False)
 def read_google_sheet(url: str, sheet_name: str) -> pd.DataFrame:
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
     if not m:
-        raise ValueError("Link Google Sheets không đúng.")
+        raise ValueError("Link Google Sheets không đúng. Hãy copy link dạng docs.google.com/spreadsheets/d/...")
 
     file_id = m.group(1)
     gm = re.search(r"gid=([0-9]+)", url)
@@ -122,9 +208,15 @@ def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str, syno
     si = col_letter_to_index(synonym_col) if synonym_col else None
 
     cards = []
+    raw_rows = 0
+    missing_vi = 0
+    missing_detail = 0
+    missing_synonyms = 0
+    skipped_no_kr = 0
 
     for idx, row in df.iterrows():
         vals = list(row.values)
+        raw_rows += 1
 
         kr = clean_text(vals[ki]) if ki < len(vals) else ""
         mean = clean_text(vals[vi]) if vi < len(vals) else ""
@@ -132,10 +224,18 @@ def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str, syno
         synonyms = clean_text(vals[si]) if si is not None and si < len(vals) else ""
 
         if not kr:
+            skipped_no_kr += 1
             continue
 
         if not mean:
             mean = "Chưa có nghĩa"
+            missing_vi += 1
+
+        if not detail:
+            missing_detail += 1
+
+        if not synonyms:
+            missing_synonyms += 1
 
         cards.append({
             "stt": len(cards) + 1,
@@ -143,22 +243,19 @@ def make_cards(df: pd.DataFrame, kr_col: str, vi_col: str, detail_col: str, syno
             "kr": kr,
             "vi": mean,
             "detail": detail,
-            "synonyms": synonyms,
-            "pronunciation": "",
-            "word_type": "",
+            "synonyms": synonyms
         })
 
-    return cards
-
-
-def make_stats(cards):
-    return {
+    stats = {
+        "raw_rows": raw_rows,
         "cards": len(cards),
-        "missing_vi": sum(1 for x in cards if not x.get("vi") or x.get("vi") == "Chưa có nghĩa"),
-        "missing_detail": sum(1 for x in cards if not x.get("detail")),
-        "missing_synonyms": sum(1 for x in cards if not x.get("synonyms")),
-        "skipped_no_kr": 0,
+        "missing_vi": missing_vi,
+        "missing_detail": missing_detail,
+        "missing_synonyms": missing_synonyms,
+        "skipped_no_kr": skipped_no_kr,
     }
+
+    return cards, stats
 
 
 def get_folder(cards, folder_no, folder_size):
@@ -232,15 +329,15 @@ def speak_button(text, lang="ko-KR", rate=0.85):
             utterance.rate = {rate};
             window.speechSynthesis.speak(utterance);
         ' style="
-            width:100%;
-            padding:12px 16px;
-            border-radius:10px;
-            border:1px solid #4b5563;
-            background:#2563eb;
-            color:white;
-            font-size:17px;
-            font-weight:800;
-            cursor:pointer;
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid #4b5563;
+            background: #2563eb;
+            color: white;
+            font-size: 17px;
+            font-weight: 800;
+            cursor: pointer;
         ">
             🔊 Nghe phát âm
         </button>
@@ -276,6 +373,7 @@ def reset_write():
     st.session_state.write_total = 0
     st.session_state.write_last = None
     st.session_state.write_cards_order = []
+    st.session_state.write_input = ""
 
 
 def reset_quiz():
@@ -293,6 +391,9 @@ def reset_speaking():
 
 
 def choose_folder(folder_no):
+    if "folder_learn_count" not in st.session_state:
+        st.session_state.folder_learn_count = {}
+
     old_folder = st.session_state.get("folder_no", None)
 
     if old_folder != folder_no:
@@ -311,6 +412,9 @@ def choose_folder(folder_no):
 
 
 def get_folder_status(folder_no):
+    if "folder_learn_count" not in st.session_state:
+        st.session_state.folder_learn_count = {}
+
     count = st.session_state.folder_learn_count.get(folder_no, 0)
 
     if folder_no == st.session_state.folder_no:
@@ -325,6 +429,9 @@ def get_folder_status(folder_no):
 
 
 def get_folder_state(folder_no):
+    if "folder_learn_count" not in st.session_state:
+        st.session_state.folder_learn_count = {}
+
     count = st.session_state.folder_learn_count.get(folder_no, 0)
 
     if folder_no == st.session_state.folder_no:
@@ -357,6 +464,7 @@ for k, v in {
     "write_total": 0,
     "write_last": None,
     "write_cards_order": [],
+    "write_input": "",
     "folder_learn_count": {},
     "quiz_q": None,
     "quiz_options": [],
@@ -367,13 +475,9 @@ for k, v in {
     "speaking_last_text": "",
     "speaking_last_score": None,
     "learn_show_answer": False,
-    "editor_cards": [],
-    "editor_data_key": "",
-    "editor_i": 0,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
-
 
 if st.session_state.folder_no not in st.session_state.folder_learn_count:
     st.session_state.folder_learn_count[st.session_state.folder_no] = 1
@@ -384,7 +488,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.caption("Bản V12: Có thêm form nhập thẻ giống OpenQuiz và ô từ đồng nghĩa.")
+if BUTTON_SUPPORTS_SHORTCUT:
+    st.caption("Bản V12: Có thêm Speaking và cột từ đồng nghĩa để chấp nhận nhiều đáp án đúng.")
+else:
+    st.caption("Bản V12: Có thêm Speaking và từ đồng nghĩa. Muốn dùng phím 1 / 2 / 3 / 4, hãy nâng cấp Streamlit bằng: pip install --upgrade streamlit")
 
 
 with st.sidebar:
@@ -406,15 +513,17 @@ with st.sidebar:
         uploaded = st.file_uploader("Upload Excel/CSV", type=["xlsx", "xlsm", "csv"])
 
     st.header("2) Chọn cột")
-    st.caption("File thường là: B = tiếng Hàn, A = nghĩa Việt, C = giải thích, D = từ đồng nghĩa.")
+    st.caption("File của bạn thường là: B = tiếng Hàn, A = nghĩa Việt, C = giải thích, D = từ đồng nghĩa.")
 
     kr_col = st.text_input("Cột tiếng Hàn", value="B")
     vi_col = st.text_input("Cột nghĩa tiếng Việt", value="A")
     detail_col = st.text_input("Cột giải thích", value="C")
     synonym_col = st.text_input("Cột từ đồng nghĩa / đáp án thay thế", value="D")
+    st.caption("Trong cột từ đồng nghĩa, có thể nhập nhiều đáp án bằng dấu /, dấu phẩy, dấu ; hoặc xuống dòng.")
 
     st.header("3) Chia thư mục")
     folder_size = int(st.number_input("Số từ mỗi thư mục", min_value=10, max_value=500, value=50, step=10))
+    st.caption("Để giống set nhỏ, nên để 50.")
 
 
 try:
@@ -432,21 +541,11 @@ try:
         st.warning("Hãy dán link Google Sheets hoặc upload file để bắt đầu.")
         st.stop()
 
-    loaded_cards = make_cards(df, kr_col, vi_col, detail_col, synonym_col)
+    cards_all, stats = make_cards(df, kr_col, vi_col, detail_col, synonym_col)
 
-    if not loaded_cards:
+    if not cards_all:
         st.error("Không đọc được thẻ. Cột tiếng Hàn đang trống hoặc bạn chọn sai cột tiếng Hàn.")
         st.stop()
-
-    data_key = f"{source}|{google_url}|{getattr(uploaded, 'name', '')}|{kr_col}|{vi_col}|{detail_col}|{synonym_col}|{len(loaded_cards)}"
-
-    if st.session_state.editor_data_key != data_key:
-        st.session_state.editor_data_key = data_key
-        st.session_state.editor_cards = [dict(x) for x in loaded_cards]
-        st.session_state.editor_i = 0
-
-    cards_all = st.session_state.editor_cards
-    stats = make_stats(cards_all)
 
     total = len(cards_all)
     total_folders = max(1, math.ceil(total / folder_size))
@@ -494,8 +593,7 @@ try:
         f"từ {start_num}–{end_num} | {len(cards)} thẻ"
     )
 
-    tab_input, tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
-        "✍️ Nhập thẻ",
+    tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
         "📁 Thư mục",
         "📚 Flashcard",
         "⌨️ Gõ văn bản",
@@ -506,159 +604,6 @@ try:
         "🔎 Tìm kiếm",
         "📋 Dữ liệu"
     ])
-
-    with tab_input:
-        st.subheader("✍️ Nhập thẻ giống OpenQuiz")
-
-        if not st.session_state.editor_cards:
-            st.session_state.editor_cards.append({
-                "stt": 1,
-                "dong_goc": "",
-                "kr": "",
-                "vi": "",
-                "detail": "",
-                "synonyms": "",
-                "pronunciation": "",
-                "word_type": "",
-            })
-
-        st.session_state.editor_i = min(
-            st.session_state.editor_i,
-            len(st.session_state.editor_cards) - 1
-        )
-
-        edit_i = st.session_state.editor_i
-        edit_card = st.session_state.editor_cards[edit_i]
-
-        st.markdown("<div class='editor-card'>", unsafe_allow_html=True)
-
-        top_left, top_right = st.columns([1, 12])
-
-        with top_left:
-            st.markdown(f"<div class='editor-index'>{edit_i + 1}</div>", unsafe_allow_html=True)
-
-        with top_right:
-            st.caption("Nhập nội dung thẻ học")
-
-        col_a, col_b, col_img = st.columns([5, 5, 1])
-
-        with col_a:
-            new_kr = st.text_input(
-                "THUẬT NGỮ",
-                value=edit_card.get("kr", ""),
-                key=f"editor_kr_{edit_i}"
-            )
-
-        with col_b:
-            new_vi = st.text_area(
-                "ĐỊNH NGHĨA",
-                value=edit_card.get("vi", ""),
-                height=80,
-                key=f"editor_vi_{edit_i}"
-            )
-
-        with col_img:
-            st.write("")
-            st.write("")
-            delete_top = st.button("🗑️", key=f"delete_top_{edit_i}", use_container_width=True)
-
-        col_c, col_d = st.columns(2)
-
-        with col_c:
-            new_pronunciation = st.text_input(
-                "Phát âm (Tùy chọn)",
-                value=edit_card.get("pronunciation", ""),
-                placeholder="VD: /haːlou/",
-                key=f"editor_pronunciation_{edit_i}"
-            )
-
-        with col_d:
-            new_type = st.text_input(
-                "Loại từ (Tùy chọn)",
-                value=edit_card.get("word_type", ""),
-                placeholder="VD: noun, verb...",
-                key=f"editor_type_{edit_i}"
-            )
-
-        col_e, col_f = st.columns(2)
-
-        with col_e:
-            new_detail = st.text_area(
-                "Ví dụ (Tùy chọn)",
-                value=edit_card.get("detail", ""),
-                placeholder="Nhập câu ví dụ",
-                height=90,
-                key=f"editor_detail_{edit_i}"
-            )
-
-        with col_f:
-            new_synonyms = st.text_area(
-                "Từ đồng nghĩa (Tùy chọn)",
-                value=edit_card.get("synonyms", ""),
-                placeholder="Nhập các từ đồng nghĩa, cách nhau bằng dấu chấm phẩy (;)",
-                height=90,
-                key=f"editor_synonyms_{edit_i}"
-            )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.session_state.editor_cards[edit_i].update({
-            "kr": new_kr,
-            "vi": new_vi,
-            "detail": new_detail,
-            "synonyms": new_synonyms,
-            "pronunciation": new_pronunciation,
-            "word_type": new_type,
-        })
-
-        btn1, btn2, btn3, btn4 = st.columns(4)
-
-        if btn1.button("⬅️ Trước", use_container_width=True, disabled=edit_i <= 0):
-            st.session_state.editor_i -= 1
-            st.rerun()
-
-        if btn2.button("➕ Thêm thẻ", use_container_width=True):
-            st.session_state.editor_cards.append({
-                "stt": len(st.session_state.editor_cards) + 1,
-                "dong_goc": "",
-                "kr": "",
-                "vi": "",
-                "detail": "",
-                "synonyms": "",
-                "pronunciation": "",
-                "word_type": "",
-            })
-            st.session_state.editor_i = len(st.session_state.editor_cards) - 1
-            st.rerun()
-
-        delete_clicked = btn3.button(
-            "🗑️ Xóa thẻ",
-            use_container_width=True,
-            disabled=len(st.session_state.editor_cards) <= 1
-        )
-
-        if delete_clicked or delete_top:
-            if len(st.session_state.editor_cards) > 1:
-                st.session_state.editor_cards.pop(edit_i)
-                st.session_state.editor_i = max(0, edit_i - 1)
-                st.rerun()
-
-        if btn4.button("Sau ➡️", use_container_width=True, disabled=edit_i >= len(st.session_state.editor_cards) - 1):
-            st.session_state.editor_i += 1
-            st.rerun()
-
-        st.info("Dữ liệu trong tab này được lưu tạm trong web. Muốn giữ lại lâu dài, hãy tải CSV rồi đưa vào Google Sheets.")
-
-        export_df = pd.DataFrame(st.session_state.editor_cards)
-        export_csv = export_df.to_csv(index=False).encode("utf-8-sig")
-
-        st.download_button(
-            "⬇️ Tải CSV đã nhập / đã sửa",
-            export_csv,
-            file_name="tu_vung_da_them_dong_nghia.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
 
     with tab_folder:
         st.subheader("📁 Thư mục")
@@ -727,26 +672,25 @@ try:
         card = cards[i]
 
         st.markdown(f"### Thẻ {i + 1}/{len(cards)}")
-
         synonym_html = (
-            f"<div class='synonyms'><b>Đồng nghĩa:</b> {html.escape(card.get('synonyms', ''))}</div>"
-            if card.get("synonyms") else ""
+            f"<div class='synonyms'><b>Đồng nghĩa:</b> {html.escape(card['synonyms'])}</div>"
+            if card["synonyms"] else ""
         )
 
         if st.session_state.show_answer:
             st.markdown(
                 f"<div class='card'>"
-                f"<div class='korean'>{html.escape(card.get('kr', ''))}</div>"
-                f"<div class='meaning'>{html.escape(card.get('vi', ''))}</div>"
+                f"<div class='korean'>{html.escape(card['kr'])}</div>"
+                f"<div class='meaning'>{html.escape(card['vi'])}</div>"
                 f"{synonym_html}"
-                f"<div class='detail'>{html.escape(card.get('detail', ''))}</div>"
+                f"<div class='detail'>{html.escape(card['detail'])}</div>"
                 f"</div>",
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
                 f"<div class='card'>"
-                f"<div class='korean'>{html.escape(card.get('kr', ''))}</div>"
+                f"<div class='korean'>{html.escape(card['kr'])}</div>"
                 f"<div class='detail'>Bấm Hiện nghĩa để xem đáp án.</div>"
                 f"</div>",
                 unsafe_allow_html=True
@@ -775,7 +719,7 @@ try:
             st.rerun()
 
         with fb5:
-            speak_button(card.get("kr", ""))
+            speak_button(card["kr"])
 
     with tab_write:
         st.subheader(f"⌨️ Kiểm tra bằng gõ văn bản — Bộ {st.session_state.folder_no:03d}")
@@ -787,7 +731,7 @@ try:
             horizontal=True
         )
 
-        order_key = f"{st.session_state.folder_no}_{folder_size}_{mode}_{len(cards)}"
+        order_key = f"{st.session_state.folder_no}_{folder_size}_{mode}"
 
         if not st.session_state.write_cards_order or st.session_state.get("write_order_key") != order_key:
             st.session_state.write_order_key = order_key
@@ -797,6 +741,7 @@ try:
             st.session_state.write_score = 0
             st.session_state.write_total = 0
             st.session_state.write_last = None
+            st.session_state.write_input = ""
 
         wc = st.session_state.write_cards_order[
             st.session_state.write_i % len(st.session_state.write_cards_order)
@@ -818,16 +763,16 @@ try:
                 st.error(f"Câu trước: Sai ❌ | Bạn nhập: {last['user']} | Đáp án: {last['answer']}")
 
         if mode == "Gõ tiếng Hàn theo nghĩa":
-            prompt_main = wc.get("vi", "")
-            prompt_sub = wc.get("detail", "")
-            expected = wc.get("kr", "")
+            prompt_main = wc["vi"]
+            prompt_sub = wc["detail"]
+            expected = wc["kr"]
             extra_answers = ""
             label = "Nhập tiếng Hàn rồi nhấn Enter"
         else:
-            prompt_main = wc.get("kr", "")
-            prompt_sub = wc.get("detail", "")
-            expected = wc.get("vi", "")
-            extra_answers = wc.get("synonyms", "")
+            prompt_main = wc["kr"]
+            prompt_sub = wc["detail"]
+            expected = wc["vi"]
+            extra_answers = wc["synonyms"]
             label = "Nhập nghĩa tiếng Việt rồi nhấn Enter"
 
         shown_answer = format_expected_answer(expected, extra_answers)
@@ -850,17 +795,24 @@ try:
 
             if ok:
                 st.session_state.write_score += 1
+                st.session_state.write_last = {
+                    "ok": True,
+                    "user": user_ans,
+                    "answer": shown_answer,
+                    "kr": wc["kr"],
+                    "vi": wc["vi"]
+                }
                 st.session_state.write_i = (
                     st.session_state.write_i + 1
                 ) % len(st.session_state.write_cards_order)
-
-            st.session_state.write_last = {
-                "ok": ok,
-                "user": user_ans,
-                "answer": shown_answer,
-                "kr": wc.get("kr", ""),
-                "vi": wc.get("vi", "")
-            }
+            else:
+                st.session_state.write_last = {
+                    "ok": False,
+                    "user": user_ans,
+                    "answer": shown_answer,
+                    "kr": wc["kr"],
+                    "vi": wc["vi"]
+                }
 
             st.rerun()
 
@@ -871,8 +823,8 @@ try:
                 "ok": False,
                 "user": "Đã xem đáp án",
                 "answer": shown_answer,
-                "kr": wc.get("kr", ""),
-                "vi": wc.get("vi", "")
+                "kr": wc["kr"],
+                "vi": wc["vi"]
             }
             st.rerun()
 
@@ -896,49 +848,48 @@ try:
             st.session_state.learn_show_answer = False
 
         c = st.session_state.learn_card
-
         learn_synonym_html = (
-            f"<div class='synonyms'><b>Đồng nghĩa:</b> {html.escape(c.get('synonyms', ''))}</div>"
-            if c.get("synonyms") else ""
+            f"<div class='synonyms'><b>Đồng nghĩa:</b> {html.escape(c['synonyms'])}</div>"
+            if c["synonyms"] else ""
         )
 
         st.markdown(
             f"<div class='card'>"
-            f"<div class='korean'>{html.escape(c.get('kr', ''))}</div>"
+            f"<div class='korean'>{html.escape(c['kr'])}</div>"
             f"{learn_synonym_html if st.session_state.get('learn_show_answer') else ''}"
             f"</div>",
             unsafe_allow_html=True
         )
 
-        speak_button(c.get("kr", ""))
+        speak_button(c["kr"])
 
         ans = st.text_input("Nhập nghĩa tiếng Việt:")
 
         if st.button("Kiểm tra"):
             st.session_state.learn_show_answer = True
 
-            if is_correct(ans, c.get("vi", ""), "Gõ nghĩa tiếng Việt theo tiếng Hàn", c.get("synonyms", "")):
-                st.success(f"Đúng rồi: {format_expected_answer(c.get('vi', ''), c.get('synonyms', ''))}")
+            if is_correct(ans, c["vi"], "Gõ nghĩa tiếng Việt theo tiếng Hàn", c["synonyms"]):
+                st.success(f"Đúng rồi: {format_expected_answer(c['vi'], c['synonyms'])}")
             else:
-                st.warning(f"Đáp án: {format_expected_answer(c.get('vi', ''), c.get('synonyms', ''))}")
+                st.warning(f"Đáp án: {format_expected_answer(c['vi'], c['synonyms'])}")
 
-            if c.get("detail"):
-                st.info(c.get("detail"))
+            if c["detail"]:
+                st.info(c["detail"])
 
     with tab_quiz:
         st.subheader(f"📝 Quiz — Bộ {st.session_state.folder_no:03d}")
 
-        valid_for_quiz = [x for x in cards if x.get("vi") != "Chưa có nghĩa"]
+        valid_for_quiz = [x for x in cards if x["vi"] != "Chưa có nghĩa"]
 
         if len(valid_for_quiz) < 4:
             st.warning("Cần ít nhất 4 thẻ có nghĩa để làm quiz.")
         else:
             def make_new_quiz_question():
                 new_q = random.choice(valid_for_quiz)
-                new_wrong_pool = [x for x in valid_for_quiz if x.get("vi") != new_q.get("vi")]
+                new_wrong_pool = [x for x in valid_for_quiz if x["vi"] != new_q["vi"]]
 
-                new_options = [new_q.get("vi", "")] + [
-                    x.get("vi", "") for x in random.sample(new_wrong_pool, min(3, len(new_wrong_pool)))
+                new_options = [new_q["vi"]] + [
+                    x["vi"] for x in random.sample(new_wrong_pool, min(3, len(new_wrong_pool)))
                 ]
 
                 random.shuffle(new_options)
@@ -973,19 +924,19 @@ try:
                 f"""
                 <div class="quiz-box">
                     <div class="quiz-label">Thuật ngữ</div>
-                    <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
+                    <div class="quiz-question">{html.escape(q["kr"])}</div>
                     <div class="quiz-answer-title">Chọn đáp án đúng</div>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            speak_button(q.get("kr", ""))
+            speak_button(q["kr"])
 
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
             elif st.session_state.get("quiz_last_result") == "wrong":
-                st.error(f"Sai. Đáp án đúng: {format_expected_answer(q.get('vi', ''), q.get('synonyms', ''))}")
+                st.error(f"Sai. Đáp án đúng: {format_expected_answer(q['vi'], q['synonyms'])}")
 
             answer_cols = st.columns(2)
 
@@ -1009,7 +960,7 @@ try:
                         )
 
                         if clicked:
-                            check_answer(option, q.get("vi", ""))
+                            check_answer(option, q["vi"])
 
             st.markdown(
                 """
@@ -1034,7 +985,7 @@ try:
                 key="speaking_mode"
             )
 
-            speaking_order_key = f"{st.session_state.folder_no}_{folder_size}_{speaking_mode}_{len(cards)}"
+            speaking_order_key = f"{st.session_state.folder_no}_{folder_size}_{speaking_mode}"
 
             if (
                 not st.session_state.speaking_cards_order
@@ -1051,10 +1002,13 @@ try:
                 st.session_state.speaking_i % len(st.session_state.speaking_cards_order)
             ]
 
-            target_text = sc.get("kr", "")
+            target_text = sc["kr"]
 
             if speaking_mode == "Luyện theo ví dụ/giải thích nếu có":
-                target_text = sc.get("detail") or sc.get("kr", "")
+                if sc["detail"]:
+                    target_text = sc["detail"]
+                else:
+                    target_text = sc["kr"]
 
             st.progress(
                 (st.session_state.speaking_i % len(st.session_state.speaking_cards_order)) /
@@ -1063,18 +1017,13 @@ try:
 
             st.write(f"Câu: **{(st.session_state.speaking_i % len(st.session_state.speaking_cards_order)) + 1}/{len(st.session_state.speaking_cards_order)}**")
 
-            synonym_html = (
-                f'<div class="synonyms"><b>Đồng nghĩa:</b> {html.escape(sc.get("synonyms", ""))}</div>'
-                if sc.get("synonyms") else ""
-            )
-
             st.markdown(
                 f"""
                 <div class="speaking-box">
                     <div class="speaking-target">{html.escape(target_text)}</div>
-                    <div class="speaking-vi">{html.escape(sc.get("vi", ""))}</div>
-                    {synonym_html}
-                    <div class="speaking-detail">{html.escape(sc.get("detail", ""))}</div>
+                    <div class="speaking-vi">{html.escape(sc["vi"])}</div>
+                    {f'<div class="synonyms"><b>Đồng nghĩa:</b> {html.escape(sc["synonyms"])}</div>' if sc["synonyms"] else ''}
+                    <div class="speaking-detail">{html.escape(sc["detail"])}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1140,10 +1089,12 @@ try:
                     st.write("Bạn nói:")
                     st.warning(st.session_state.speaking_last_text)
 
+            st.info("Lưu ý: tính năng micro hoạt động tốt nhất trên Chrome/Cốc Cốc và cần cho phép quyền Micro.")
+
     with tab_match:
         st.subheader(f"🧩 Ghép cặp — Bộ {st.session_state.folder_no:03d}")
 
-        valid_for_match = [x for x in cards if x.get("vi") != "Chưa có nghĩa"]
+        valid_for_match = [x for x in cards if x["vi"] != "Chưa có nghĩa"]
 
         if len(valid_for_match) < 2:
             st.warning("Cần ít nhất 2 thẻ có nghĩa để ghép cặp.")
@@ -1152,17 +1103,17 @@ try:
 
             st.write("Chọn nghĩa đúng cho từng từ:")
 
-            rights = [x.get("vi", "") for x in sample]
+            rights = [x["vi"] for x in sample]
             score = 0
 
             for item in sample:
                 ans = st.selectbox(
-                    item.get("kr", ""),
+                    item["kr"],
                     [""] + rights,
-                    key=f"match_{item.get('stt')}_{st.session_state.folder_no}"
+                    key=f"match_{item['stt']}_{st.session_state.folder_no}"
                 )
 
-                if ans == item.get("vi", ""):
+                if ans == item["vi"]:
                     score += 1
 
             if st.button("Kiểm tra ghép cặp"):
@@ -1178,10 +1129,10 @@ try:
 
             res = [
                 x for x in cards_all
-                if kwl in x.get("kr", "").lower()
-                or kwl in x.get("vi", "").lower()
-                or kwl in x.get("detail", "").lower()
-                or kwl in x.get("synonyms", "").lower()
+                if kwl in x["kr"].lower()
+                or kwl in x["vi"].lower()
+                or kwl in x["detail"].lower()
+                or kwl in x["synonyms"].lower()
             ]
 
             st.write(f"Tìm thấy {len(res)} kết quả")
