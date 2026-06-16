@@ -123,7 +123,7 @@ def clean_text(x):
 
 
 def split_answer_parts(text: str):
-    parts = re.split(r"[\n/|,;；]+", clean_text(text))
+    parts = re.split(r"[\r\n]+", clean_text(text))
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -261,8 +261,12 @@ def get_folder(cards, folder_no, folder_size):
 
 
 def answer_variants(correct_answer: str, extra_answers: str = ""):
-    variants = [clean_text(correct_answer)]
-    variants.extend(split_answer_parts(correct_answer))
+    variants = []
+
+    if clean_text(correct_answer) != "Chưa có nghĩa":
+        variants.append(clean_text(correct_answer))
+        variants.extend(split_answer_parts(correct_answer))
+
     variants.extend(split_answer_parts(extra_answers))
 
     unique = []
@@ -279,7 +283,31 @@ def answer_variants(correct_answer: str, extra_answers: str = ""):
 
 
 def format_expected_answer(correct_answer: str, extra_answers: str = "") -> str:
-    return " / ".join(answer_variants(correct_answer, extra_answers))
+    return "\n".join(answer_variants(correct_answer, extra_answers))
+
+
+def answer_variants_for_card(card: dict, question_text: str = ""):
+    question_norm = normalize_answer(question_text or card.get("kr", ""))
+    variants = answer_variants(card.get("vi", ""), card.get("synonyms", ""))
+    filtered = []
+    seen = set()
+
+    for item in variants:
+        norm = normalize_answer(item)
+
+        if not item or not norm:
+            continue
+
+        if question_norm and norm == question_norm:
+            continue
+
+        if norm in seen:
+            continue
+
+        filtered.append(item)
+        seen.add(norm)
+
+    return filtered
 
 
 def normalize_speaking_text(s: str) -> str:
@@ -1006,20 +1034,13 @@ try:
     with tab_quiz:
         st.subheader(f"📝 Quiz — Bộ {st.session_state.folder_no:03d}")
 
-        valid_for_quiz = [x for x in cards if x.get("kr")]
+        valid_for_quiz = [x for x in cards if x.get("kr") and answer_variants_for_card(x)]
 
         if len(valid_for_quiz) < 4:
-            st.warning("Cần ít nhất 4 thẻ để làm quiz.")
+            st.warning("Cần ít nhất 4 thẻ có đáp án hợp lệ để làm quiz.")
         else:
             def pick_one_answer(card):
-                answers = answer_variants(
-                    card.get("vi", ""),
-                    card.get("synonyms", "")
-                )
-
-                if not answers:
-                    answers = [card.get("kr", "")]
-
+                answers = answer_variants_for_card(card)
                 answers = [x for x in answers if clean_text(x)]
 
                 if not answers:
@@ -1029,15 +1050,7 @@ try:
 
             def make_new_quiz_question():
                 new_q = random.choice(valid_for_quiz)
-
-                correct_variants = answer_variants(
-                    new_q.get("vi", ""),
-                    new_q.get("synonyms", "")
-                )
-
-                if not correct_variants:
-                    correct_variants = [new_q.get("kr", "")]
-
+                correct_variants = answer_variants_for_card(new_q)
                 correct_variants = [x for x in correct_variants if clean_text(x)]
                 correct_option = random.choice(correct_variants)
 
@@ -1049,7 +1062,9 @@ try:
                 wrong_answers = []
                 random.shuffle(new_wrong_pool)
 
+                current_question_norm = normalize_answer(new_q.get("kr", ""))
                 correct_norms = [normalize_answer(a) for a in correct_variants]
+                wrong_norms = set(correct_norms)
 
                 for x in new_wrong_pool:
                     wrong_text = pick_one_answer(x)
@@ -1057,10 +1072,12 @@ try:
 
                     if (
                         wrong_text
-                        and wrong_norm not in correct_norms
-                        and wrong_norm not in [normalize_answer(a) for a in wrong_answers]
+                        and wrong_norm
+                        and wrong_norm != current_question_norm
+                        and wrong_norm not in wrong_norms
                     ):
                         wrong_answers.append(wrong_text)
+                        wrong_norms.add(wrong_norm)
 
                     if len(wrong_answers) >= 3:
                         break
