@@ -391,6 +391,7 @@ def reset_quiz():
     st.session_state.quiz_options = []
     st.session_state.quiz_last_result = None
     st.session_state.quiz_round = 0
+    st.session_state.quiz_show_detail = False
 
 
 def reset_speaking():
@@ -470,6 +471,7 @@ for k, v in {
     "quiz_options": [],
     "quiz_last_result": None,
     "quiz_round": 0,
+    "quiz_show_detail": False,
     "speaking_i": 0,
     "speaking_cards_order": [],
     "speaking_last_text": "",
@@ -1090,7 +1092,8 @@ try:
                 st.session_state.quiz_correct_variants = correct_variants
                 st.session_state.quiz_options = new_options
                 st.session_state.quiz_round = st.session_state.get("quiz_round", 0) + 1
-
+                st.session_state.quiz_show_detail = False
+                
             def check_answer(selected_option):
                 correct_variants = st.session_state.get("quiz_correct_variants", [])
 
@@ -1119,17 +1122,27 @@ try:
             quiz_round = st.session_state.get("quiz_round", 0)
 
             st.markdown(
-                f"""
-                <div class="quiz-box">
-                    <div class="quiz-label">Thuật ngữ</div>
-                    <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
-                    <div class="quiz-answer-title">Chọn đáp án đúng</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+    f"""
+    <div class="quiz-box">
+        <div class="quiz-label">Thuật ngữ</div>
+        <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
+        <div class="quiz-answer-title">Chọn đáp án đúng</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-            speak_button(q.get("kr", ""))
+detail_text = clean_text(q.get("detail", ""))
+
+if detail_text:
+    if st.button("👁️ Hiện/ẩn giải thích / ví dụ", key=f"quiz_detail_{quiz_round}", use_container_width=True):
+        st.session_state.quiz_show_detail = not st.session_state.quiz_show_detail
+        st.rerun()
+
+    if st.session_state.get("quiz_show_detail"):
+        st.info(detail_text)
+
+speak_button(q.get("kr", ""))
 
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
