@@ -1132,17 +1132,21 @@ try:
     unsafe_allow_html=True
 )
 
-detail_text = clean_text(q.get("detail", ""))
+            detail_text = clean_text(q.get("detail", ""))
 
-if detail_text:
-    if st.button("👁️ Hiện/ẩn giải thích / ví dụ", key=f"quiz_detail_{quiz_round}", use_container_width=True):
-        st.session_state.quiz_show_detail = not st.session_state.quiz_show_detail
-        st.rerun()
+            if detail_text:
+                if st.button(
+                    "👁️ Hiện/ẩn giải thích / ví dụ",
+                    key=f"quiz_detail_{quiz_round}",
+                    use_container_width=True
+                ):
+                    st.session_state.quiz_show_detail = not st.session_state.quiz_show_detail
+                    st.rerun()
 
-    if st.session_state.get("quiz_show_detail"):
-        st.info(detail_text)
+                if st.session_state.get("quiz_show_detail"):
+                    st.info(detail_text)
 
-speak_button(q.get("kr", ""))
+            speak_button(q.get("kr", ""))
 
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
