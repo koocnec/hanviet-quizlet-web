@@ -480,6 +480,8 @@ for k, v in {
     "editor_cards": [],
     "editor_data_key": "",
     "editor_i": 0,
+    "applied_cards": [],
+    "applied_data_key": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -518,10 +520,10 @@ with st.sidebar:
     st.header("2) Chọn cột")
     st.caption("Ví dụ của bạn: C = ngữ pháp ban đầu, F hoặc H = từ đồng nghĩa.")
 
-    kr_col = st.text_input("Cột tiếng Hàn / ngữ pháp ban đầu", value="C")
+    kr_col = st.text_input("Cột tiếng Hàn / ngữ pháp ban đầu", value="")
     vi_col = st.text_input("Cột nghĩa tiếng Việt", value="")
     detail_col = st.text_input("Cột giải thích / ví dụ", value="")
-    synonym_col = st.text_input("Cột từ đồng nghĩa / đáp án thay thế", value="F")
+    synonym_col = st.text_input("Cột từ đồng nghĩa / đáp án thay thế", value="")
 
     auto_fill_merged = st.checkbox(
         "Tự nhận diện ô gộp / điền dữ liệu xuống dòng dưới",
@@ -537,58 +539,83 @@ with st.sidebar:
 
     st.header("3) Chia thư mục")
     folder_size = int(st.number_input("Số từ mỗi thư mục", min_value=10, max_value=500, value=50, step=10))
+    apply_data = st.button("Áp dụng", type="primary", use_container_width=True)
 
 
 try:
-    df = None
+    if apply_data:
+        df = None
+        read_google_sheet.clear()
+        read_uploaded_file.clear()
 
-    if source == "Google Sheets link" and google_url.strip():
-        with st.spinner("Đang tải Google Sheets..."):
-            df = read_google_sheet(google_url.strip(), sheet_name.strip())
+        if source == "Google Sheets link":
+            if not google_url.strip():
+                st.sidebar.error("Bạn cần dán link Google Sheets trước.")
+                st.stop()
 
-    elif source == "Upload file" and uploaded is not None:
-        with st.spinner("Đang đọc file..."):
-            df = read_uploaded_file(uploaded)
+            with st.spinner("Đang tải Google Sheets..."):
+                df = read_google_sheet(google_url.strip(), sheet_name.strip())
 
-    if df is None:
-        st.warning("Hãy dán link Google Sheets hoặc upload file để bắt đầu.")
+        elif source == "Upload file":
+            if uploaded is None:
+                st.sidebar.error("Bạn cần upload file trước.")
+                st.stop()
+
+            with st.spinner("Đang đọc file..."):
+                df = read_uploaded_file(uploaded)
+
+        loaded_cards = make_cards(
+            df,
+            kr_col,
+            vi_col,
+            detail_col,
+            synonym_col,
+            auto_fill_merged,
+            group_same_term
+        )
+
+        if not loaded_cards:
+            st.error("Không đọc được thẻ. Hãy kiểm tra lại cột tiếng Hàn / ngữ pháp ban đầu.")
+            st.stop()
+
+        data_key = (
+            f"{source}|{google_url}|{getattr(uploaded, 'name', '')}|"
+            f"{kr_col}|{vi_col}|{detail_col}|{synonym_col}|"
+            f"{auto_fill_merged}|{group_same_term}|{len(loaded_cards)}"
+        )
+
+        st.session_state.applied_cards = loaded_cards
+        st.session_state.applied_data_key = data_key
+        st.session_state.folder_no = 1
+        st.session_state.card_i = 0
+        st.session_state.show_answer = False
+        st.session_state.write_cards_order = []
+        st.session_state.quiz_q = None
+        st.session_state.quiz_options = []
+        st.session_state.quiz_last_result = None
+        st.session_state.speaking_cards_order = []
+        if "learn_card" in st.session_state:
+            del st.session_state["learn_card"]
+
+        if st.session_state.editor_data_key != data_key:
+            st.session_state.editor_data_key = data_key
+            st.session_state.editor_cards = [{
+                "stt": 1,
+                "dong_goc": "",
+                "kr": "",
+                "vi": "",
+                "detail": "",
+                "synonyms": "",
+                "pronunciation": "",
+                "word_type": "",
+            }]
+            st.session_state.editor_i = 0
+
+    if not st.session_state.applied_cards:
+        st.warning("Hãy chọn nguồn dữ liệu, nhập cột cần dùng rồi bấm Áp dụng để bắt đầu.")
         st.stop()
 
-    loaded_cards = make_cards(
-        df,
-        kr_col,
-        vi_col,
-        detail_col,
-        synonym_col,
-        auto_fill_merged,
-        group_same_term
-    )
-
-    if not loaded_cards:
-        st.error("Không đọc được thẻ. Hãy kiểm tra lại cột tiếng Hàn / ngữ pháp ban đầu.")
-        st.stop()
-
-    data_key = (
-        f"{source}|{google_url}|{getattr(uploaded, 'name', '')}|"
-        f"{kr_col}|{vi_col}|{detail_col}|{synonym_col}|"
-        f"{auto_fill_merged}|{group_same_term}|{len(loaded_cards)}"
-    )
-
-    if st.session_state.editor_data_key != data_key:
-        st.session_state.editor_data_key = data_key
-        st.session_state.editor_cards = [{
-            "stt": 1,
-            "dong_goc": "",
-            "kr": "",
-            "vi": "",
-            "detail": "",
-            "synonyms": "",
-            "pronunciation": "",
-            "word_type": "",
-        }]
-        st.session_state.editor_i = 0
-
-    cards_all = loaded_cards
+    cards_all = st.session_state.applied_cards
     stats = make_stats(cards_all)
 
     total = len(cards_all)
