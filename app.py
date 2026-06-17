@@ -58,14 +58,17 @@ div[data-testid="stButton"] button span[data-testid="stShortcutBadge"] {display:
 div.st-key-quiz_star_icon_btn {
     display:flex;
     justify-content:flex-end;
+    width:100% !important;
+    max-width:none !important;
     height:0;
     margin:0;
-    padding-right:30px;
+    padding-right:34px;
     position:relative;
     z-index:20;
     transform:translateY(94px);
 }
 div.st-key-quiz_star_icon_btn button {
+    margin-left:auto !important;
     width:120px !important;
     height:120px !important;
     min-height:120px !important;
