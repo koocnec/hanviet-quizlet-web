@@ -1243,7 +1243,7 @@ try:
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
 
-            quiz_btn1, quiz_btn2, quiz_btn3 = st.columns([1, 1, 1])
+            quiz_btn1, quiz_btn2 = st.columns([1, 1])
 
             with quiz_btn1:
                 if st.button("Câu mới", key="quiz_new_btn", use_container_width=True):
@@ -1261,20 +1261,25 @@ try:
             options = st.session_state.quiz_options
             quiz_round = st.session_state.get("quiz_round", 0)
 
-            with quiz_btn3:
+            current_no = max(1, min(st.session_state.quiz_i, len(st.session_state.quiz_cards_order)))
+            quiz_info_col, quiz_star_col = st.columns([5, 1])
+
+            with quiz_info_col:
+                st.caption(
+                    f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
+                    f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
+                )
+
+            with quiz_star_col:
                 star_button(q, key=f"quiz_star_{card_key(q)}_{quiz_round}")
 
-            current_no = max(1, min(st.session_state.quiz_i, len(st.session_state.quiz_cards_order)))
-            st.caption(
-                f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
-                f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
-            )
+            quiz_star_symbol = "⭐" if is_starred(q) else "☆"
 
             st.markdown(
     f"""
     <div class="quiz-box">
         <div class="quiz-label">Thuật ngữ</div>
-        <div class="quiz-question">{'⭐ ' if is_starred(q) else ''}{html.escape(q.get("kr", ""))}</div>
+        <div class="quiz-question">{quiz_star_symbol} {html.escape(q.get("kr", ""))}</div>
         <div class="quiz-answer-title">Chọn đáp án đúng</div>
     </div>
     """,
