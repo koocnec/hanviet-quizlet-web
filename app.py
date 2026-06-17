@@ -60,21 +60,22 @@ div.st-key-quiz_star_icon_btn {
     justify-content:flex-end;
     height:0;
     margin:0;
-    padding-right:28px;
+    padding-right:22px;
     position:relative;
     z-index:20;
-    transform:translateY(84px);
+    transform:translateY(76px);
 }
 div.st-key-quiz_star_icon_btn button {
-    width:54px !important;
-    height:54px !important;
-    min-height:54px !important;
+    width:132px !important;
+    height:132px !important;
+    min-height:132px !important;
     padding:0 !important;
     border:0 !important;
     background:transparent !important;
     color:white !important;
-    font-size:36px !important;
+    font-size:108px !important;
     font-weight:900 !important;
+    line-height:1 !important;
     box-shadow:none !important;
 }
 div.st-key-quiz_star_icon_btn button:hover {
