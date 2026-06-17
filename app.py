@@ -55,6 +55,32 @@ st.markdown("""
 div[data-testid="stButton"] button kbd {display:none !important;}
 div[data-testid="stButton"] button [data-testid="stShortcutBadge"] {display:none !important;}
 div[data-testid="stButton"] button span[data-testid="stShortcutBadge"] {display:none !important;}
+div.st-key-quiz_star_icon_btn {
+    display:flex;
+    justify-content:flex-end;
+    height:0;
+    margin:0;
+    padding-right:28px;
+    position:relative;
+    z-index:20;
+    transform:translateY(84px);
+}
+div.st-key-quiz_star_icon_btn button {
+    width:54px !important;
+    height:54px !important;
+    min-height:54px !important;
+    padding:0 !important;
+    border:0 !important;
+    background:transparent !important;
+    color:white !important;
+    font-size:36px !important;
+    font-weight:900 !important;
+    box-shadow:none !important;
+}
+div.st-key-quiz_star_icon_btn button:hover {
+    background:transparent !important;
+    transform:scale(1.08);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1262,25 +1288,20 @@ try:
             quiz_round = st.session_state.get("quiz_round", 0)
 
             current_no = max(1, min(st.session_state.quiz_i, len(st.session_state.quiz_cards_order)))
+            st.caption(
+                f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
+                f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
+            )
+
             quiz_star_symbol = "⭐" if is_starred(q) else "☆"
 
-            quiz_info_col, quiz_star_col = st.columns([12, 1])
-
-            with quiz_info_col:
-                st.caption(
-                    f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
-                    f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
-                )
-
-            with quiz_star_col:
-                if st.button(
-                    quiz_star_symbol,
-                    key=f"quiz_star_icon_{card_key(q)}_{quiz_round}",
-                    help="Gắn sao / bỏ sao",
-                    use_container_width=True
-                ):
-                    toggle_star(q)
-                    st.rerun()
+            if st.button(
+                quiz_star_symbol,
+                key="quiz_star_icon_btn",
+                help="Gắn sao / bỏ sao"
+            ):
+                toggle_star(q)
+                st.rerun()
 
             st.markdown(
     f"""
