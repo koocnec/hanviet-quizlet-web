@@ -60,15 +60,15 @@ div.st-key-quiz_star_icon_btn {
     justify-content:flex-end;
     height:0;
     margin:0;
-    padding-right:22px;
+    padding-right:30px;
     position:relative;
     z-index:20;
-    transform:translateY(76px);
+    transform:translateY(94px);
 }
 div.st-key-quiz_star_icon_btn button {
-    width:132px !important;
-    height:132px !important;
-    min-height:132px !important;
+    width:120px !important;
+    height:120px !important;
+    min-height:120px !important;
     padding:0 !important;
     border:0 !important;
     background:transparent !important;
@@ -77,6 +77,14 @@ div.st-key-quiz_star_icon_btn button {
     font-weight:900 !important;
     line-height:1 !important;
     box-shadow:none !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+}
+div.st-key-quiz_star_icon_btn button p {
+    font-size:108px !important;
+    line-height:1 !important;
+    margin:0 !important;
 }
 div.st-key-quiz_star_icon_btn button:hover {
     background:transparent !important;
@@ -1298,8 +1306,7 @@ try:
 
             if st.button(
                 quiz_star_symbol,
-                key="quiz_star_icon_btn",
-                help="Gắn sao / bỏ sao"
+                key="quiz_star_icon_btn"
             ):
                 toggle_star(q)
                 st.rerun()
