@@ -7,6 +7,7 @@ import inspect
 import json
 import difflib
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 import pandas as pd
 import streamlit as st
@@ -43,7 +44,8 @@ st.markdown("""
 .quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72; position:relative;}
 .quiz-label {font-size:15px; font-weight:800; color:#fff; margin-bottom:28px;}
 .quiz-question {font-size:34px; font-weight:900; color:#fff; min-height:130px; display:flex; align-items:flex-start; line-height:1.35;}
-.quiz-star-corner {position:absolute; top:28px; right:34px; font-size:36px; font-weight:900; color:#fff; line-height:1;}
+.quiz-star-corner {position:absolute; top:28px; right:34px; font-size:36px; font-weight:900; color:#fff; line-height:1; text-decoration:none; cursor:pointer;}
+.quiz-star-corner:hover {transform:scale(1.08);}
 .quiz-answer-title {font-size:15px; font-weight:800; color:#fff; margin-top:18px;}
 .quiz-num {height:48px; display:flex; align-items:center; justify-content:center; font-weight:900; color:#fff; border:1px solid #4b5563; border-radius:10px; background:#111827; margin-top:2px;}
 .quiz-help {text-align:right; color:#c7c9ff; font-weight:800; margin-top:18px;}
@@ -473,9 +475,7 @@ def is_starred(card):
     return card_key(card) in st.session_state.get("starred_cards", [])
 
 
-def toggle_star(card):
-    key = card_key(card)
-
+def toggle_star_key(key):
     if not key:
         return
 
@@ -489,12 +489,35 @@ def toggle_star(card):
     st.session_state.starred_cards = starred
 
 
+def toggle_star(card):
+    toggle_star_key(card_key(card))
+
+
 def star_button(card, key, use_container_width=True):
     label = "⭐ Đã gắn sao" if is_starred(card) else "☆ Gắn sao"
 
     if st.button(label, key=key, use_container_width=use_container_width):
         toggle_star(card)
         st.rerun()
+
+
+def handle_star_query_param():
+    raw_key = st.query_params.get("toggle_star", "")
+
+    if isinstance(raw_key, list):
+        raw_key = raw_key[0] if raw_key else ""
+
+    if not raw_key:
+        return
+
+    toggle_star_key(unquote(raw_key))
+
+    try:
+        del st.query_params["toggle_star"]
+    except Exception:
+        st.query_params.clear()
+
+    st.rerun()
 
 
 for k, v in {
@@ -529,6 +552,9 @@ for k, v in {
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+
+handle_star_query_param()
 
 
 if st.session_state.folder_no not in st.session_state.folder_learn_count:
@@ -1263,23 +1289,18 @@ try:
             quiz_round = st.session_state.get("quiz_round", 0)
 
             current_no = max(1, min(st.session_state.quiz_i, len(st.session_state.quiz_cards_order)))
-            quiz_info_col, quiz_star_col = st.columns([5, 1])
-
-            with quiz_info_col:
-                st.caption(
-                    f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
-                    f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
-                )
-
-            with quiz_star_col:
-                star_button(q, key=f"quiz_star_{card_key(q)}_{quiz_round}")
+            st.caption(
+                f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
+                f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
+            )
 
             quiz_star_symbol = "⭐" if is_starred(q) else "☆"
+            quiz_star_url = f"?toggle_star={quote(card_key(q), safe='')}"
 
             st.markdown(
     f"""
     <div class="quiz-box">
-        <div class="quiz-star-corner">{quiz_star_symbol}</div>
+        <a class="quiz-star-corner" href="{quiz_star_url}" title="Gắn sao / bỏ sao">{quiz_star_symbol}</a>
         <div class="quiz-label">Thuật ngữ</div>
         <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
         <div class="quiz-answer-title">Chọn đáp án đúng</div>
