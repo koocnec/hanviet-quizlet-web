@@ -392,6 +392,9 @@ def reset_quiz():
     st.session_state.quiz_last_result = None
     st.session_state.quiz_round = 0
     st.session_state.quiz_show_detail = False
+    st.session_state.quiz_cards_order = []
+    st.session_state.quiz_i = 0
+    st.session_state.quiz_order_key = ""
 
 
 def reset_speaking():
@@ -457,6 +460,42 @@ def make_quiz_button(label, key, shortcut):
     return st.button(label, **kwargs)
 
 
+def card_key(card):
+    return "|".join([
+        normalize_answer(card.get("kr", "")),
+        normalize_answer(card.get("vi", "")),
+        normalize_answer(card.get("detail", "")),
+    ])
+
+
+def is_starred(card):
+    return card_key(card) in st.session_state.get("starred_cards", [])
+
+
+def toggle_star(card):
+    key = card_key(card)
+
+    if not key:
+        return
+
+    starred = list(st.session_state.get("starred_cards", []))
+
+    if key in starred:
+        starred.remove(key)
+    else:
+        starred.append(key)
+
+    st.session_state.starred_cards = starred
+
+
+def star_button(card, key, use_container_width=True):
+    label = "⭐ Đã gắn sao" if is_starred(card) else "☆ Gắn sao"
+
+    if st.button(label, key=key, use_container_width=use_container_width):
+        toggle_star(card)
+        st.rerun()
+
+
 for k, v in {
     "folder_no": 1,
     "card_i": 0,
@@ -472,6 +511,9 @@ for k, v in {
     "quiz_last_result": None,
     "quiz_round": 0,
     "quiz_show_detail": False,
+    "quiz_cards_order": [],
+    "quiz_i": 0,
+    "quiz_order_key": "",
     "speaking_i": 0,
     "speaking_cards_order": [],
     "speaking_last_text": "",
@@ -482,6 +524,7 @@ for k, v in {
     "editor_i": 0,
     "applied_cards": [],
     "applied_data_key": "",
+    "starred_cards": [],
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -861,7 +904,9 @@ try:
         i = st.session_state.card_i % len(cards)
         card = cards[i]
 
-        st.markdown(f"### Thẻ {i + 1}/{len(cards)}")
+        st.markdown(
+            f"### {'⭐ ' if is_starred(card) else ''}Thẻ {i + 1}/{len(cards)}"
+        )
 
         synonym_html = (
             f"<div class='synonyms'><b>Đồng nghĩa:</b><br>{html.escape(card.get('synonyms', ''))}</div>"
@@ -887,7 +932,7 @@ try:
                 unsafe_allow_html=True
             )
 
-        fb1, fb2, fb3, fb4, fb5 = st.columns(5)
+        fb1, fb2, fb3, fb4, fb5, fb6 = st.columns(6)
 
         if fb1.button("⬅️ Trước", key="flash_prev_btn", use_container_width=True):
             st.session_state.card_i = (i - 1) % len(cards)
@@ -911,6 +956,9 @@ try:
 
         with fb5:
             speak_button(card.get("kr", ""))
+
+        with fb6:
+            star_button(card, key=f"flash_star_{card_key(card)}_{i}")
 
     with tab_write:
         st.subheader(f"⌨️ Kiểm tra bằng gõ văn bản — Bộ {st.session_state.folder_no:03d}")
@@ -1026,11 +1074,19 @@ try:
     with tab_learn:
         st.subheader(f"🎓 Học — Bộ {st.session_state.folder_no:03d}")
 
-        if "learn_card" not in st.session_state or st.button("Từ mới"):
+        learn_top1, learn_top2 = st.columns([4, 1])
+
+        with learn_top1:
+            new_learn_card = st.button("Từ mới", use_container_width=True)
+
+        if "learn_card" not in st.session_state or new_learn_card:
             st.session_state.learn_card = random.choice(cards)
             st.session_state.learn_show_answer = False
 
         c = st.session_state.learn_card
+
+        with learn_top2:
+            star_button(c, key=f"learn_star_{card_key(c)}")
 
         learn_synonym_html = (
             f"<div class='synonyms'><b>Đồng nghĩa:</b><br>{html.escape(c.get('synonyms', ''))}</div>"
@@ -1039,7 +1095,7 @@ try:
 
         st.markdown(
             f"<div class='card'>"
-            f"<div class='korean'>{html.escape(c.get('kr', ''))}</div>"
+                f"<div class='korean'>{'⭐ ' if is_starred(c) else ''}{html.escape(c.get('kr', ''))}</div>"
             f"{learn_synonym_html if st.session_state.get('learn_show_answer') else ''}"
             f"</div>",
             unsafe_allow_html=True
@@ -1064,10 +1120,47 @@ try:
         st.subheader(f"📝 Quiz — Bộ {st.session_state.folder_no:03d}")
 
         valid_for_quiz = [x for x in cards if x.get("kr") and answer_variants_for_card(x)]
+        starred_valid_for_quiz = [x for x in valid_for_quiz if is_starred(x)]
 
         if len(valid_for_quiz) < 4:
             st.warning("Cần ít nhất 4 thẻ có đáp án hợp lệ để làm quiz.")
         else:
+            quiz_filter_col, quiz_count_col = st.columns([2, 1])
+
+            with quiz_filter_col:
+                quiz_only_starred = st.checkbox(
+                    "Chỉ học câu đã gắn sao",
+                    value=False,
+                    key="quiz_only_starred"
+                )
+
+            with quiz_count_col:
+                st.metric("Đã gắn sao trong bộ", f"{len(starred_valid_for_quiz):,}")
+
+            question_pool = starred_valid_for_quiz if quiz_only_starred else valid_for_quiz
+
+            if quiz_only_starred and not question_pool:
+                st.warning("Bạn chưa gắn sao câu nào trong bộ này.")
+                question_pool = valid_for_quiz
+                quiz_only_starred = False
+
+            quiz_order_key = (
+                f"{st.session_state.folder_no}|{folder_size}|{quiz_only_starred}|"
+                + "|".join(card_key(x) for x in question_pool)
+            )
+
+            def reset_quiz_order(shuffle=True):
+                st.session_state.quiz_cards_order = question_pool.copy()
+
+                if shuffle:
+                    random.shuffle(st.session_state.quiz_cards_order)
+
+                st.session_state.quiz_i = 0
+                st.session_state.quiz_order_key = quiz_order_key
+                st.session_state.quiz_q = None
+                st.session_state.quiz_options = []
+                st.session_state.quiz_last_result = None
+
             def pick_one_answer(card):
                 answers = answer_variants_for_card(card)
                 answers = [x for x in answers if clean_text(x)]
@@ -1078,7 +1171,18 @@ try:
                 return random.choice(answers)
 
             def make_new_quiz_question():
-                new_q = random.choice(valid_for_quiz)
+                if (
+                    not st.session_state.quiz_cards_order
+                    or st.session_state.get("quiz_order_key") != quiz_order_key
+                    or st.session_state.quiz_i >= len(st.session_state.quiz_cards_order)
+                ):
+                    reset_quiz_order(shuffle=True)
+
+                new_q = st.session_state.quiz_cards_order[
+                    st.session_state.quiz_i % len(st.session_state.quiz_cards_order)
+                ]
+                st.session_state.quiz_i += 1
+
                 correct_variants = answer_variants_for_card(new_q)
                 correct_variants = [x for x in correct_variants if clean_text(x)]
                 correct_option = random.choice(correct_variants)
@@ -1120,7 +1224,7 @@ try:
                 st.session_state.quiz_options = new_options
                 st.session_state.quiz_round = st.session_state.get("quiz_round", 0) + 1
                 st.session_state.quiz_show_detail = False
-                
+	                
             def check_answer(selected_option):
                 correct_variants = st.session_state.get("quiz_correct_variants", [])
 
@@ -1139,20 +1243,38 @@ try:
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
 
-            if st.button("Câu mới", key="quiz_new_btn", use_container_width=True):
-                make_new_quiz_question()
-                st.session_state.quiz_last_result = None
-                st.rerun()
+            quiz_btn1, quiz_btn2, quiz_btn3 = st.columns([1, 1, 1])
+
+            with quiz_btn1:
+                if st.button("Câu mới", key="quiz_new_btn", use_container_width=True):
+                    make_new_quiz_question()
+                    st.session_state.quiz_last_result = None
+                    st.rerun()
+
+            with quiz_btn2:
+                if st.button("🔀 Trộn câu hỏi", key="quiz_shuffle_btn", use_container_width=True):
+                    reset_quiz_order(shuffle=True)
+                    make_new_quiz_question()
+                    st.rerun()
 
             q = st.session_state.quiz_q
             options = st.session_state.quiz_options
             quiz_round = st.session_state.get("quiz_round", 0)
 
+            with quiz_btn3:
+                star_button(q, key=f"quiz_star_{card_key(q)}_{quiz_round}")
+
+            current_no = max(1, min(st.session_state.quiz_i, len(st.session_state.quiz_cards_order)))
+            st.caption(
+                f"Câu {current_no}/{len(st.session_state.quiz_cards_order)} "
+                f"{'| đang ôn câu có sao' if quiz_only_starred else ''}"
+            )
+
             st.markdown(
     f"""
     <div class="quiz-box">
         <div class="quiz-label">Thuật ngữ</div>
-        <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
+        <div class="quiz-question">{'⭐ ' if is_starred(q) else ''}{html.escape(q.get("kr", ""))}</div>
         <div class="quiz-answer-title">Chọn đáp án đúng</div>
     </div>
     """,
@@ -1377,9 +1499,14 @@ try:
     with tab_data:
         st.subheader("📋 Dữ liệu bộ đang học")
 
-        st.dataframe(pd.DataFrame(cards), use_container_width=True)
+        data_rows = [
+            {**x, "starred": "⭐" if is_starred(x) else ""}
+            for x in cards
+        ]
 
-        csv = pd.DataFrame(cards).to_csv(index=False).encode("utf-8-sig")
+        st.dataframe(pd.DataFrame(data_rows), use_container_width=True)
+
+        csv = pd.DataFrame(data_rows).to_csv(index=False).encode("utf-8-sig")
 
         st.download_button(
             "Tải CSV bộ này",
