@@ -40,9 +40,10 @@ st.markdown("""
 .folder-card {border:1px solid #555; border-radius:18px; padding:18px; margin:8px 0; background:#141a25;}
 .folder-card-active {border:2px solid #22c55e; border-radius:18px; padding:18px; margin:8px 0; background:#10251a;}
 .small {color:#aaa; font-size:14px;}
-.quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72;}
+.quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72; position:relative;}
 .quiz-label {font-size:15px; font-weight:800; color:#fff; margin-bottom:28px;}
 .quiz-question {font-size:34px; font-weight:900; color:#fff; min-height:130px; display:flex; align-items:flex-start; line-height:1.35;}
+.quiz-star-corner {position:absolute; top:28px; right:34px; font-size:36px; font-weight:900; color:#fff; line-height:1;}
 .quiz-answer-title {font-size:15px; font-weight:800; color:#fff; margin-top:18px;}
 .quiz-num {height:48px; display:flex; align-items:center; justify-content:center; font-weight:900; color:#fff; border:1px solid #4b5563; border-radius:10px; background:#111827; margin-top:2px;}
 .quiz-help {text-align:right; color:#c7c9ff; font-weight:800; margin-top:18px;}
@@ -1278,8 +1279,9 @@ try:
             st.markdown(
     f"""
     <div class="quiz-box">
+        <div class="quiz-star-corner">{quiz_star_symbol}</div>
         <div class="quiz-label">Thuật ngữ</div>
-        <div class="quiz-question">{quiz_star_symbol} {html.escape(q.get("kr", ""))}</div>
+        <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
         <div class="quiz-answer-title">Chọn đáp án đúng</div>
     </div>
     """,
