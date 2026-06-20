@@ -983,21 +983,32 @@ try:
                         choose_folder(f)
 
     with tab_starred:
-        st.subheader(f"⭐ Đã gắn sao — Bộ {st.session_state.folder_no:03d}")
+        st.subheader("⭐ Đã gắn sao — Tất cả bộ")
 
-        starred_cards = [card for card in cards if card.get("starred")]
+        folder_options = ["Tất cả bộ"] + [f"Bộ {i:03d}" for i in range(1, total_folders + 1)]
+        folder_choice = st.selectbox("Lọc theo bộ", folder_options, index=0, key="starred_folder_filter")
+        selected_folder = None if folder_choice == "Tất cả bộ" else int(folder_choice.split()[1])
+
+        starred_cards = []
+        for idx, card in enumerate(cards_all):
+            if not card.get("starred"):
+                continue
+
+            folder_no = (idx // folder_size) + 1
+            if selected_folder is None or folder_no == selected_folder:
+                starred_cards.append((card, folder_no))
 
         if not starred_cards:
-            st.info("Chưa có thẻ nào được gắn sao trong bộ này.")
+            st.info("Chưa có thẻ nào được gắn sao.")
         else:
-            for card in starred_cards:
+            for card, folder_no in starred_cards:
                 synonym_html = (
                     f"<div class='synonyms'><b>Đồng nghĩa:</b><br>{html.escape(card.get('synonyms', ''))}</div>"
                     if card.get("synonyms") else ""
                 )
 
                 star_label = "⭐" if card.get("starred") else "☆"
-                if st.button(star_label, key=f"starred_list_{card.get('stt')}_{st.session_state.folder_no}", help="Bỏ dấu sao thẻ này"):
+                if st.button(star_label, key=f"starred_list_{card.get('stt')}", help="Bỏ dấu sao thẻ này"):
                     card["starred"] = not card.get("starred", False)
 
                     persist_starred_state(st.session_state.applied_cards, st.session_state.applied_data_key)
@@ -1005,6 +1016,7 @@ try:
 
                 st.markdown(
                     f"<div class='card'>"
+                    f"<div class='small'>Bộ {folder_no:03d}</div>"
                     f"<div class='korean'>{html.escape(card.get('kr', ''))}</div>"
                     f"<div class='meaning'>{html.escape(card.get('vi', ''))}</div>"
                     f"{synonym_html}"
