@@ -1241,9 +1241,15 @@ try:
     with tab_quiz:
         st.subheader(f"📝 Quiz — Bộ {st.session_state.folder_no:03d}")
 
+        only_starred = st.checkbox("Chỉ quiz thẻ đã gắn sao", value=False, key="quiz_only_starred")
+        quiz_source = [card for card in cards if card.get("starred")] if only_starred else cards
+
+        if only_starred:
+            st.info(f"Đang quiz {len(quiz_source)} thẻ đã gắn sao trong Bộ {st.session_state.folder_no:03d}.")
+
         valid_for_quiz = [
             entry
-            for card in cards
+            for card in quiz_source
             if card.get("kr")
             for entry in quiz_entries_for_card(card)
         ]
