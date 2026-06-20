@@ -7,6 +7,7 @@ import inspect
 import json
 import difflib
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pandas as pd
 import streamlit as st
@@ -40,7 +41,52 @@ st.markdown("""
 .folder-card {border:1px solid #555; border-radius:18px; padding:18px; margin:8px 0; background:#141a25;}
 .folder-card-active {border:2px solid #22c55e; border-radius:18px; padding:18px; margin:8px 0; background:#10251a;}
 .small {color:#aaa; font-size:14px;}
-.quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72;}
+.quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72; position:relative;}
+.quiz-box {background:#2f3b5c; border-radius:18px; padding:32px 36px; margin-top:18px; margin-bottom:22px; border:1px solid #3f4d72; position:relative;}
+.quiz-star-button {
+    position:absolute;
+    top:20px;
+    right:20px;
+    width:56px;
+    height:56px;
+    border-radius:50%;
+    border:1px solid #4b5563;
+    background:#111827;
+    color:#fbbf24;
+    font-size:28px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    z-index:9999;
+    pointer-events:auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+.quiz-star-button:hover { opacity:0.92; }
+button[title="quiz backend button"] { display:none !important; }
+button[title="quiz-star-btn"] {
+    position:relative;
+    top:-196px;
+    left:84%;
+    width:56px;
+    height:56px;
+    border-radius:50%;
+    border:1px solid #4b5563;
+    background:#111827;
+    color:#fbbf24;
+    font-size:28px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    z-index:9999;
+    margin-bottom:-156px;
+}
+button[title="quiz-star-btn"]:hover { opacity:0.92; }
+.quiz-label {font-size:15px; font-weight:800; color:#fff; margin-bottom:28px;}
+.quiz-question {font-size:34px; font-weight:900; color:#fff; min-height:130px; display:flex; align-items:flex-start; line-height:1.35;}
+.quiz-answer-title {font-size:15px; font-weight:800; color:#fff; margin-top:18px;}
+.quiz-num {height:48px; display:flex; align-items:center; justify-content:center; font-weight:900; color:#fff; border:1px solid #4b5563; border-radius:10px; background:#111827; margin-top:2px;}
 .quiz-label {font-size:15px; font-weight:800; color:#fff; margin-bottom:28px;}
 .quiz-question {font-size:34px; font-weight:900; color:#fff; min-height:130px; display:flex; align-items:flex-start; line-height:1.35;}
 .quiz-answer-title {font-size:15px; font-weight:800; color:#fff; margin-top:18px;}
@@ -212,6 +258,7 @@ def make_cards(
             "synonyms": synonyms,
             "pronunciation": "",
             "word_type": "",
+            "starred": False,
         })
 
     if not group_same_term:
@@ -635,17 +682,24 @@ try:
     if st.session_state.folder_no > total_folders:
         st.session_state.folder_no = 1
 
+    quiz_total = sum(
+        len(quiz_entries_for_card(card))
+        for card in cards_all
+        if card.get("kr")
+    )
+
     st.success(
         f"Đã tạo {total:,} thẻ. "
         f"Đã chia thành {total_folders} thư mục, mỗi thư mục {folder_size} từ."
     )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Thẻ đã tạo", f"{stats['cards']:,}")
     c2.metric("Thiếu nghĩa", f"{stats['missing_vi']:,}")
     c3.metric("Thiếu giải thích", f"{stats['missing_detail']:,}")
     c4.metric("Thiếu đồng nghĩa", f"{stats['missing_synonyms']:,}")
     c5.metric("Bỏ qua vì thiếu tiếng Hàn", f"{stats['skipped_no_kr']:,}")
+    c6.metric("Số quiz", f"{quiz_total:,}")
 
     top_cols = st.columns([1, 2, 1])
 
@@ -669,15 +723,21 @@ try:
             choose_folder(st.session_state.folder_no + 1)
 
     cards, start_num, end_num = get_folder(cards_all, st.session_state.folder_no, folder_size)
+    folder_quiz_total = sum(
+        len(quiz_entries_for_card(card))
+        for card in cards
+        if card.get("kr")
+    )
 
     st.info(
         f"Đang học: Bộ {st.session_state.folder_no:03d} | "
-        f"từ {start_num}–{end_num} | {len(cards)} thẻ"
+        f"từ {start_num}–{end_num} | {len(cards)} thẻ | {folder_quiz_total} quiz"
     )
 
-    tab_input, tab_folder, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
+    tab_input, tab_folder, tab_starred, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
         "✍️ Nhập thẻ",
         "📁 Thư mục",
+        "⭐ Đã gắn sao",
         "📚 Flashcard",
         "⌨️ Gõ văn bản",
         "🎓 Học",
@@ -866,6 +926,36 @@ try:
                     if st.button(label, key=f"choose_folder_{f}", use_container_width=True, disabled=active):
                         choose_folder(f)
 
+    with tab_starred:
+        st.subheader(f"⭐ Đã gắn sao — Bộ {st.session_state.folder_no:03d}")
+
+        starred_cards = [card for card in cards if card.get("starred")]
+
+        if not starred_cards:
+            st.info("Chưa có thẻ nào được gắn sao trong bộ này.")
+        else:
+            for card in starred_cards:
+                synonym_html = (
+                    f"<div class='synonyms'><b>Đồng nghĩa:</b><br>{html.escape(card.get('synonyms', ''))}</div>"
+                    if card.get("synonyms") else ""
+                )
+
+                star_label = "⭐" if card.get("starred") else "☆"
+                if st.button(star_label, key=f"starred_list_{card.get('stt')}_{st.session_state.folder_no}", help="Bỏ dấu sao thẻ này"):
+                    card["starred"] = not card.get("starred", False)
+                    st.rerun()
+
+                st.markdown(
+                    f"<div class='card'>"
+                    f"<div class='korean'>{html.escape(card.get('kr', ''))}</div>"
+                    f"<div class='meaning'>{html.escape(card.get('vi', ''))}</div>"
+                    f"{synonym_html}"
+                    f"<div class='detail'>{html.escape(card.get('detail', ''))}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                st.markdown("<hr>", unsafe_allow_html=True)
+
     with tab_flash:
         st.subheader(f"📚 Flashcard — Bộ {st.session_state.folder_no:03d}")
 
@@ -878,6 +968,12 @@ try:
             f"<div class='synonyms'><b>Đồng nghĩa:</b><br>{html.escape(card.get('synonyms', ''))}</div>"
             if card.get("synonyms") else ""
         )
+
+        star_label = "⭐" if card.get("starred") else "☆"
+
+        if st.button(star_label, key=f"star_card_{card.get('stt')}_{st.session_state.folder_no}", help="Gắn / bỏ dấu sao cho thẻ này"):
+            card["starred"] = not card.get("starred", False)
+            st.rerun()
 
         if st.session_state.show_answer:
             st.markdown(
@@ -1165,17 +1261,33 @@ try:
             q = st.session_state.quiz_q
             options = st.session_state.quiz_options
             quiz_round = st.session_state.get("quiz_round", 0)
+            total_quiz = len(valid_for_quiz)
+            quiz_star_label = "⭐" if q.get("starred") else "☆"
+
+            header_col, star_col = st.columns([11, 1])
+            with header_col:
+                st.markdown(
+                    f"<div class='quiz-help'>Câu {quiz_round} / {total_quiz}</div>",
+                    unsafe_allow_html=True
+                )
+
+            q = st.session_state.quiz_q
+            star_help = "quiz-star-btn"
+
+            if st.button(quiz_star_label, key=f"quiz_star_btn_{quiz_round}", help=star_help):
+                q["starred"] = not q.get("starred", False)
+                st.rerun()
 
             st.markdown(
-    f"""
-    <div class="quiz-box">
-        <div class="quiz-label">Thuật ngữ</div>
-        <div class="quiz-question">{html.escape(q.get("kr", ""))}</div>
-        <div class="quiz-answer-title">Chọn đáp án đúng</div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+                f"""
+                <div class='quiz-box'>
+                    <div class='quiz-label'>Thuật ngữ</div>
+                    <div class='quiz-question'>{html.escape(q.get('kr', ''))}</div>
+                    <div class='quiz-answer-title'>Chọn đáp án đúng</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
             detail_text = clean_text(q.get("detail", ""))
 
