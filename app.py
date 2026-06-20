@@ -27,7 +27,62 @@ LOGO_PATH = APP_DIR / "2612.png"
 
 DEFAULT_GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=881137373#gid=881137373"
 
+STATE_FILE = APP_DIR / "app_star_state.json"
+
 BUTTON_SUPPORTS_SHORTCUT = "shortcut" in inspect.signature(st.button).parameters
+
+
+def load_persistent_state():
+    if not STATE_FILE.exists():
+        return {}
+
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_persistent_state(state):
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def card_identity(card):
+    return "|".join([
+        normalize_answer(card.get("kr", "")),
+        normalize_answer(card.get("vi", "")),
+        normalize_answer(card.get("detail", ""))
+    ])
+
+
+def restore_starred_state(cards, data_key):
+    if not data_key:
+        return
+
+    state = load_persistent_state()
+    starred_map = state.get(data_key, {})
+
+    for card in cards:
+        card_id = card_identity(card)
+
+        if card_id:
+            card["starred"] = bool(starred_map.get(card_id, False))
+
+
+def persist_starred_state(cards, data_key):
+    if not data_key:
+        return
+
+    state = load_persistent_state()
+    state[data_key] = state.get(data_key, {})
+
+    for card in cards:
+        card_id = card_identity(card)
+
+        if card_id:
+            state[data_key][card_id] = bool(card.get("starred", False))
+
+    save_persistent_state(state)
 
 
 st.markdown("""
@@ -644,6 +699,7 @@ try:
 
         st.session_state.applied_cards = loaded_cards
         st.session_state.applied_data_key = data_key
+        restore_starred_state(st.session_state.applied_cards, data_key)
         st.session_state.folder_no = 1
         st.session_state.card_i = 0
         st.session_state.show_answer = False
@@ -943,6 +999,8 @@ try:
                 star_label = "⭐" if card.get("starred") else "☆"
                 if st.button(star_label, key=f"starred_list_{card.get('stt')}_{st.session_state.folder_no}", help="Bỏ dấu sao thẻ này"):
                     card["starred"] = not card.get("starred", False)
+
+                    persist_starred_state(st.session_state.applied_cards, st.session_state.applied_data_key)
                     st.rerun()
 
                 st.markdown(
@@ -971,8 +1029,9 @@ try:
 
         star_label = "⭐" if card.get("starred") else "☆"
 
-        if st.button(star_label, key=f"star_card_{card.get('stt')}_{st.session_state.folder_no}", help="Gắn / bỏ dấu sao cho thẻ này"):
+        if st.button(star_label, key=f"star_card_{card.get('stt')}_{st.session_state.folder_no}", help="Gắn / bỏ dấu sao thẻ này"):
             card["starred"] = not card.get("starred", False)
+            persist_starred_state(st.session_state.applied_cards, st.session_state.applied_data_key)
             st.rerun()
 
         if st.session_state.show_answer:
@@ -1226,6 +1285,11 @@ try:
                         break
 
                 new_options = [correct_option] + wrong_answers
+                new_options = [x for x in new_options if normalize_answer(x) != current_question_norm]
+
+                if not new_options:
+                    new_options = [correct_option]
+
                 random.shuffle(new_options)
 
                 st.session_state.quiz_q = new_card
@@ -1276,6 +1340,7 @@ try:
 
             if st.button(quiz_star_label, key=f"quiz_star_btn_{quiz_round}", help=star_help):
                 q["starred"] = not q.get("starred", False)
+                persist_starred_state(st.session_state.applied_cards, st.session_state.applied_data_key)
                 st.rerun()
 
             st.markdown(
