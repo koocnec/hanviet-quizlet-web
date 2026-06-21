@@ -784,7 +784,7 @@ def reset_write():
     st.session_state.write_cards_order = []
 
 
-def reset_quiz():
+def reset_quiz(clear_mastered=False):
     st.session_state.quiz_q = None
     st.session_state.quiz_options = []
     st.session_state.quiz_last_result = None
@@ -801,6 +801,9 @@ def reset_quiz():
     st.session_state.quiz_review_count = 0
     st.session_state.quiz_completed = False
     st.session_state.quiz_last_option_orders = {}
+
+    if clear_mastered:
+        st.session_state.quiz_mastered_keys = set()
 
 
 def reset_speaking():
@@ -889,6 +892,8 @@ for k, v in {
     "quiz_review_count": 0,
     "quiz_completed": False,
     "quiz_last_option_orders": {},
+    "quiz_mastered_keys": set(),
+    "quiz_settings_version": 0,
     "speaking_i": 0,
     "speaking_cards_order": [],
     "speaking_last_text": "",
@@ -965,22 +970,22 @@ with st.sidebar:
     kr_col = st.text_input(
         "Cột tiếng Hàn / ngữ pháp ban đầu",
         value=column_defaults["kr"],
-        key=f"kr_col_{column_profile_name}"
+        key=f"kr_col_v2_{column_profile_name}"
     )
     vi_col = st.text_input(
         "Cột nghĩa tiếng Việt",
         value=column_defaults["vi"],
-        key=f"vi_col_{column_profile_name}"
+        key=f"vi_col_v2_{column_profile_name}"
     )
     detail_col = st.text_input(
         "Cột giải thích / ví dụ",
         value=column_defaults["detail"],
-        key=f"detail_col_{column_profile_name}"
+        key=f"detail_col_v2_{column_profile_name}"
     )
     synonym_col = st.text_input(
         "Cột từ đồng nghĩa / đáp án thay thế",
         value=column_defaults["synonym"],
-        key=f"synonym_col_{column_profile_name}"
+        key=f"synonym_col_v2_{column_profile_name}"
     )
 
     auto_fill_merged = st.checkbox(
@@ -1060,6 +1065,7 @@ try:
         st.session_state.quiz_review_count = 0
         st.session_state.quiz_completed = False
         st.session_state.quiz_last_option_orders = {}
+        st.session_state.quiz_mastered_keys = set()
         st.session_state.speaking_cards_order = []
         if "learn_card" in st.session_state:
             del st.session_state["learn_card"]
@@ -1586,19 +1592,191 @@ try:
     with tab_quiz:
         st.subheader(f"📝 Quiz — Bộ {st.session_state.folder_no:03d}")
 
-        only_starred = st.checkbox("Chỉ quiz thẻ đã gắn sao", value=False, key="quiz_only_starred")
-        quiz_source = [card for card in cards if card.get("starred")] if only_starred else cards
+        with st.expander("⚙️ Cài đặt học tập", expanded=False):
+            st.markdown("##### Chế độ trả lời")
+            setting_col1, setting_col2 = st.columns(2)
+            with setting_col1:
+                quiz_kr_to_vi = st.checkbox(
+                    "Hỏi tiếng Hàn, trả lời tiếng Việt",
+                    value=True,
+                    key="quiz_kr_to_vi"
+                )
+                quiz_vi_to_kr = st.checkbox(
+                    "Hỏi tiếng Việt, trả lời tiếng Hàn",
+                    value=False,
+                    key="quiz_vi_to_kr"
+                )
+            with setting_col2:
+                quiz_synonym_mode = st.checkbox(
+                    "Trả lời bằng từ đồng nghĩa",
+                    value=False,
+                    key="quiz_synonym_mode"
+                )
+                quiz_accept_synonyms = st.checkbox(
+                    "Chấp nhận từ đồng nghĩa làm đáp án",
+                    value=True,
+                    key="quiz_accept_synonyms"
+                )
+
+            st.markdown("##### Lọc từ vựng")
+            filter_col1, filter_col2 = st.columns(2)
+            with filter_col1:
+                only_starred = st.checkbox(
+                    "⭐ Chỉ học từ đánh dấu sao",
+                    value=False,
+                    key="quiz_only_starred"
+                )
+            with filter_col2:
+                only_unmastered = st.checkbox(
+                    "🎓 Chỉ học từ chưa thuộc",
+                    value=False,
+                    key="quiz_only_unmastered"
+                )
+
+            st.markdown("##### Thứ tự và hành vi")
+            behavior_col1, behavior_col2 = st.columns(2)
+            with behavior_col1:
+                quiz_in_order = st.checkbox(
+                    "Học theo thứ tự (không xáo trộn)",
+                    value=False,
+                    key="quiz_in_order"
+                )
+            with behavior_col2:
+                quiz_auto_continue = st.checkbox(
+                    "Tự động tiếp tục khi trả lời đúng",
+                    value=True,
+                    key="quiz_auto_continue"
+                )
+
+            st.markdown("##### Loại câu hỏi")
+            type_col1, type_col2 = st.columns(2)
+            with type_col1:
+                quiz_fill_blank = st.checkbox(
+                    "Điền từ (Fill in the blank)",
+                    value=False,
+                    key="quiz_fill_blank"
+                )
+            with type_col2:
+                quiz_multiple_choice = st.checkbox(
+                    "Trắc nghiệm 4 đáp án",
+                    value=True,
+                    key="quiz_multiple_choice"
+                )
+
+            action_col1, action_col2 = st.columns(2)
+            with action_col1:
+                if st.button("↻ Reset tiến độ học", key="quiz_reset_progress", use_container_width=True):
+                    reset_quiz(clear_mastered=True)
+                    st.rerun()
+            with action_col2:
+                if st.button("Áp dụng cài đặt", key="quiz_apply_settings", type="primary", use_container_width=True):
+                    reset_quiz()
+                    st.session_state.quiz_settings_version += 1
+                    st.rerun()
+
+        quiz_settings_signature = (
+            "quiz_answers_v3",
+            quiz_kr_to_vi,
+            quiz_vi_to_kr,
+            quiz_synonym_mode,
+            quiz_accept_synonyms,
+            only_starred,
+            only_unmastered,
+            quiz_in_order,
+            quiz_auto_continue,
+            quiz_fill_blank,
+            quiz_multiple_choice,
+        )
+
+        if st.session_state.get("quiz_active_settings_signature") != quiz_settings_signature:
+            st.session_state.quiz_active_settings_signature = quiz_settings_signature
+            reset_quiz()
+
+        if not (quiz_kr_to_vi or quiz_vi_to_kr or quiz_synonym_mode):
+            st.warning("Hãy chọn ít nhất một chế độ trả lời.")
+
+        if not (quiz_fill_blank or quiz_multiple_choice):
+            st.warning("Hãy chọn ít nhất một loại câu hỏi.")
+
+        quiz_source = [card for card in cards if card.get("starred")] if only_starred else list(cards)
+        all_term_norms_for_quiz = build_all_term_norms(cards_all)
+        valid_for_quiz = []
+        seen_quiz_entries = set()
+
+        def append_quiz_entry(card, question, answer, correct_variants, direction):
+            question = clean_text(question)
+            answer = clean_text(answer)
+            correct_variants = unique_by_quiz_key(
+                [x for x in correct_variants if clean_text(x)] + [answer]
+            )
+
+            if not question or not answer or normalize_quiz_key(question) == normalize_quiz_key(answer):
+                return
+
+            entry = {
+                "card": card,
+                "question": question,
+                "answer": answer,
+                "correct_variants": correct_variants,
+                "direction": direction,
+            }
+            entry_key = (
+                direction + "|"
+                + normalize_quiz_key(question) + "|"
+                + normalize_quiz_key(answer)
+            )
+
+            if entry_key in seen_quiz_entries:
+                return
+
+            if only_unmastered and entry_key in st.session_state.get("quiz_mastered_keys", set()):
+                return
+
+            seen_quiz_entries.add(entry_key)
+            valid_for_quiz.append(entry)
+
+        for source_card in quiz_source:
+            kr_text = clean_text(source_card.get("kr", ""))
+            synonym_answers = split_answer_parts(source_card.get("synonyms", ""))
+
+            if quiz_kr_to_vi:
+                primary_vi_answers = split_answer_parts(source_card.get("vi", ""))
+                primary_vi_answers = [
+                    answer for answer in primary_vi_answers
+                    if clean_text(answer) and clean_text(answer) != "Chưa có nghĩa"
+                ]
+
+                # Chỉ sheet không có cột nghĩa được cấu hình mới dùng cột G
+                # làm nguồn đáp án thay thế. Với các sheet có cột nghĩa như
+                # "ngu phap", Hàn -> Việt phải chỉ lấy đúng cột nghĩa E.
+                if not primary_vi_answers and not clean_text(vi_col):
+                    primary_vi_answers = list(synonym_answers)
+
+                accepted_vi = list(primary_vi_answers)
+                for answer in primary_vi_answers:
+                    append_quiz_entry(source_card, kr_text, answer, accepted_vi, "kr_to_vi")
+
+            if quiz_vi_to_kr:
+                vi_question = clean_text(source_card.get("vi", ""))
+                accepted_kr = [kr_text] + (synonym_answers if quiz_accept_synonyms else [])
+                if vi_question and vi_question != "Chưa có nghĩa":
+                    append_quiz_entry(source_card, vi_question, kr_text, accepted_kr, "vi_to_kr")
+
+            if quiz_synonym_mode:
+                for answer in synonym_answers:
+                    append_quiz_entry(source_card, kr_text, answer, synonym_answers, "synonym")
 
         if only_starred:
             st.info(f"Đang quiz {len(quiz_source)} thẻ đã gắn sao trong Bộ {st.session_state.folder_no:03d}.")
 
-        valid_for_quiz = quiz_entries_filtered(quiz_source, cards_all)
+        mastered_count = len(st.session_state.get("quiz_mastered_keys", set()))
+        st.caption(f"🎓 Đã thuộc trong phiên này: {mastered_count} câu.")
 
-        if len(valid_for_quiz) < 4:
-            st.warning("Cần ít nhất 4 đáp án hợp lệ để làm quiz.")
+        minimum_answers = 4 if quiz_multiple_choice else 1
+
+        if len(valid_for_quiz) < minimum_answers:
+            st.warning(f"Cần ít nhất {minimum_answers} đáp án hợp lệ với cài đặt hiện tại.")
         else:
-            all_term_norms_for_quiz = build_all_term_norms(cards_all)
-
             def pick_one_answer(card):
                 answers = answer_variants_for_card_filtered(card, all_term_norms_for_quiz)
                 answers = [x for x in answers if clean_text(x)]
@@ -1610,7 +1788,9 @@ try:
 
             def quiz_entry_key(entry):
                 return (
-                    normalize_quiz_key(entry["card"].get("kr", ""))
+                    entry.get("direction", "kr_to_vi")
+                    + "|"
+                    + normalize_quiz_key(entry.get("question", entry["card"].get("kr", "")))
                     + "|"
                     + normalize_quiz_key(entry.get("answer", ""))
                 )
@@ -1633,10 +1813,7 @@ try:
                     return
 
                 st.session_state.quiz_wrong_keys.add(key)
-                st.session_state.quiz_wrong_queue.append({
-                    "card": entry["card"],
-                    "answer": entry["answer"],
-                })
+                st.session_state.quiz_wrong_queue.append(dict(entry))
 
             def get_next_quiz_entry():
                 """
@@ -1684,7 +1861,7 @@ try:
                     return None
 
                 # Chọn một câu thường chưa hỏi trong lượt hiện tại.
-                new_entry = random.choice(remaining_regular)
+                new_entry = remaining_regular[0] if quiz_in_order else random.choice(remaining_regular)
                 st.session_state.quiz_seen_keys.add(quiz_entry_key(new_entry))
                 st.session_state.quiz_since_wrong_review = since_review + 1
                 st.session_state.quiz_is_review = False
@@ -1727,12 +1904,10 @@ try:
                     return
 
                 new_card = new_entry["card"]
-                correct_variants = answer_variants_for_card_filtered(new_card, all_term_norms_for_quiz)
+                question_text = new_entry.get("question", new_card.get("kr", ""))
+                correct_variants = list(new_entry.get("correct_variants", []))
                 correct_option = new_entry["answer"]
 
-                # Đưa chính đáp án đúng và từng phần của nó vào danh sách đáp án đúng.
-                # Ví dụ dữ liệu đúng là "아/어도 / 지 않아도 / (으)ㄴ 것도 없이"
-                # thì chọn riêng "아/어도" vẫn được tính đúng.
                 correct_variants = unique_by_quiz_key(
                     [x for x in correct_variants if clean_text(x)]
                     + [correct_option]
@@ -1743,18 +1918,19 @@ try:
                 new_wrong_pool = [
                     entry
                     for entry in valid_for_quiz
-                    if normalize_quiz_key(entry["card"].get("kr")) != normalize_quiz_key(new_card.get("kr"))
+                    if entry.get("direction") == new_entry.get("direction")
+                    and quiz_entry_key(entry) != quiz_entry_key(new_entry)
                 ]
 
                 wrong_answers = []
                 random.shuffle(new_wrong_pool)
 
-                current_question_norm = normalize_quiz_key(new_card.get("kr", ""))
+                current_question_norm = normalize_quiz_key(question_text)
                 correct_norms = [normalize_quiz_key(a) for a in correct_variants]
                 wrong_norms = set(correct_norms)
 
                 for entry in new_wrong_pool:
-                    wrong_text = pick_one_answer(entry["card"])
+                    wrong_text = entry.get("answer", "")
                     wrong_norm = normalize_quiz_key(wrong_text)
 
                     if (
@@ -1779,9 +1955,13 @@ try:
                 new_options = shuffle_options_for_entry(new_options, new_entry)
 
                 st.session_state.quiz_q = new_card
+                st.session_state.quiz_question_text = question_text
                 st.session_state.quiz_current_entry = {
                     "card": new_card,
+                    "question": question_text,
                     "answer": correct_option,
+                    "correct_variants": correct_variants,
+                    "direction": new_entry.get("direction", "kr_to_vi"),
                 }
                 st.session_state.quiz_correct = correct_option
                 st.session_state.quiz_correct_variants = correct_variants
@@ -1799,11 +1979,14 @@ try:
                 current_entry = st.session_state.get("quiz_current_entry")
 
                 if current_quiz_answer_is_correct(selected_option):
-                    # Nếu trước đó đã sai rồi chọn lại đúng:
-                    # vẫn chuyển sang câu tiếp theo như ban đầu.
-                    # Câu từng sai vẫn nằm trong hàng chờ ôn lại sau 5 câu để nhớ lâu hơn.
+                    if current_entry:
+                        st.session_state.quiz_mastered_keys.add(quiz_entry_key(current_entry))
+
                     st.session_state.quiz_last_result = "correct"
-                    make_new_quiz_question()
+
+                    if quiz_auto_continue:
+                        make_new_quiz_question()
+
                     st.rerun()
                 else:
                     if current_entry:
@@ -1843,6 +2026,7 @@ try:
 
             q = st.session_state.quiz_q
             options = st.session_state.quiz_options
+            question_text = st.session_state.get("quiz_question_text", q.get("kr", "") if q else "")
             total_quiz = len(valid_for_quiz)
             regular_done = len(st.session_state.get("quiz_seen_keys", set()))
             review_done = st.session_state.get("quiz_review_count", 0)
@@ -1854,7 +2038,7 @@ try:
                 )
 
                 if st.button("🔄 Làm lại từ đầu", key="quiz_restart_btn", use_container_width=True):
-                    reset_quiz()
+                    reset_quiz(clear_mastered=True)
                     st.rerun()
 
                 st.stop()
@@ -1886,8 +2070,8 @@ try:
                 f"""
                 <div class='quiz-box'>
                     <div class='quiz-label'>Thuật ngữ</div>
-                    <div class='quiz-question'>{html.escape(q.get('kr', ''))}</div>
-                    <div class='quiz-answer-title'>Chọn đáp án đúng</div>
+                    <div class='quiz-question'>{html.escape(question_text)}</div>
+                    <div class='quiz-answer-title'>Trả lời đáp án đúng</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1907,7 +2091,7 @@ try:
                 if st.session_state.get("quiz_show_detail"):
                     st.info(detail_text)
 
-            speak_button(q.get("kr", ""))
+            speak_button(question_text)
 
             if st.session_state.get("quiz_last_result") == "correct":
                 st.success("Đúng rồi! Đã chuyển sang câu tiếp theo ✅")
@@ -1923,29 +2107,45 @@ try:
                     + " / ".join([x for x in correct_show if clean_text(x)])
                 )
 
-            answer_cols = st.columns(2)
+            if quiz_fill_blank:
+                with st.form(f"quiz_fill_form_{quiz_round}", clear_on_submit=True):
+                    typed_answer = st.text_input(
+                        "Nhập đáp án",
+                        placeholder="Gõ đáp án rồi nhấn Enter...",
+                        key=f"quiz_fill_answer_{quiz_round}"
+                    )
+                    fill_submitted = st.form_submit_button(
+                        "Kiểm tra đáp án",
+                        use_container_width=True
+                    )
 
-            for idx, option in enumerate(options, start=1):
-                with answer_cols[(idx - 1) % 2]:
-                    num_col, btn_col = st.columns([1, 9])
+                if fill_submitted:
+                    check_answer(typed_answer)
 
-                    with num_col:
-                        st.markdown(
-                            f"<div class='quiz-num'>{idx}</div>",
-                            unsafe_allow_html=True
-                        )
+            if quiz_multiple_choice:
+                answer_cols = st.columns(2)
 
-                    with btn_col:
-                        btn_key = f"quiz_option_{st.session_state.folder_no}_{quiz_round}_{idx}"
+                for idx, option in enumerate(options, start=1):
+                    with answer_cols[(idx - 1) % 2]:
+                        num_col, btn_col = st.columns([1, 9])
 
-                        clicked = make_quiz_button(
-                            str(option),
-                            key=btn_key,
-                            shortcut=str(idx)
-                        )
+                        with num_col:
+                            st.markdown(
+                                f"<div class='quiz-num'>{idx}</div>",
+                                unsafe_allow_html=True
+                            )
 
-                        if clicked:
-                            check_answer(option)
+                        with btn_col:
+                            btn_key = f"quiz_option_{st.session_state.folder_no}_{quiz_round}_{idx}"
+
+                            clicked = make_quiz_button(
+                                str(option),
+                                key=btn_key,
+                                shortcut=str(idx)
+                            )
+
+                            if clicked:
+                                check_answer(option)
 
     with tab_speaking:
         st.subheader(f"🎙️ Speaking — Luyện nói tiếng Hàn — Bộ {st.session_state.folder_no:03d}")
