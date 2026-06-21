@@ -708,6 +708,45 @@ def quiz_entries_filtered(cards_subset, all_cards):
     return entries
 
 
+@st.cache_data(show_spinner=False)
+def cached_quiz_entry_count(subset_rows, all_rows):
+    """
+    Đếm số quiz từ dữ liệu bất biến của thẻ và cache kết quả.
+
+    Streamlit chạy lại toàn bộ file sau mỗi lần bấm đáp án. Với sheet lớn,
+    quiz_entries_filtered phải so sánh hàng nghìn đáp án với hàng nghìn
+    thuật ngữ nên rất chậm nếu tính lại ở mỗi câu.
+    """
+    subset_cards = [
+        {
+            "kr": row[0],
+            "vi": row[1],
+            "synonyms": row[2],
+        }
+        for row in subset_rows
+    ]
+    all_cards = [
+        {
+            "kr": row[0],
+            "vi": row[1],
+            "synonyms": row[2],
+        }
+        for row in all_rows
+    ]
+    return len(quiz_entries_filtered(subset_cards, all_cards))
+
+
+def quiz_count_rows(cards):
+    return tuple(
+        (
+            clean_text(card.get("kr", "")),
+            clean_text(card.get("vi", "")),
+            clean_text(card.get("synonyms", "")),
+        )
+        for card in cards
+    )
+
+
 def normalize_speaking_text(s: str) -> str:
     s = clean_text(s).lower()
     s = unicodedata.normalize("NFC", s)
@@ -1097,7 +1136,11 @@ try:
     if st.session_state.folder_no > total_folders:
         st.session_state.folder_no = 1
 
-    quiz_card_count = len(quiz_entries_filtered(cards_all, cards_all))
+    all_quiz_count_rows = quiz_count_rows(cards_all)
+    quiz_card_count = cached_quiz_entry_count(
+        all_quiz_count_rows,
+        all_quiz_count_rows
+    )
 
     st.success(
         f"Đã tạo {total:,} thẻ. "
@@ -1134,7 +1177,10 @@ try:
             choose_folder(st.session_state.folder_no + 1)
 
     cards, start_num, end_num = get_folder(cards_all, st.session_state.folder_no, folder_size)
-    folder_quiz_card_count = len(quiz_entries_filtered(cards, cards_all))
+    folder_quiz_card_count = cached_quiz_entry_count(
+        quiz_count_rows(cards),
+        all_quiz_count_rows
+    )
 
     st.info(
         f"Đang học: Bộ {st.session_state.folder_no:03d} | "
