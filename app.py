@@ -1117,10 +1117,14 @@ def excel_quiz_google_api_url(spreadsheet_id: str, api_key: str, sheet_title: st
     return f"{base}?{query}"
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def excel_quiz_load_google_sheet_with_format(google_url: str, api_key: str):
     """
     Đọc Google Sheet bằng Google Sheets API để giữ định dạng gạch chân/in đậm.
     Kết quả vẫn giữ cột 'Câu hỏi' sạch và tự thêm cột 'Câu hỏi hiển thị' có HTML.
+
+    Có cache 1 giờ để khi bấm đáp án / sang câu tiếp theo,
+    Streamlit không gọi Google API lại nên tốc độ nhanh hơn nhiều.
     """
     google_url = clean_text(google_url)
     api_key = clean_text(api_key)
@@ -1369,12 +1373,18 @@ def render_excel_quiz_tab():
     with reload_col1:
         if st.button("🔄 Tải lại sheet", key="excel_quiz_reload_google_sheet", use_container_width=True):
             read_google_sheet.clear()
+
+            try:
+                excel_quiz_load_google_sheet_with_format.clear()
+            except Exception:
+                pass
+
             excel_quiz_reset(clear_wrong=True)
             st.rerun()
 
     with reload_col2:
         if use_api_format:
-            st.info("Đang dùng Google Sheets API để đọc gạch chân/in đậm. Bản này chỉ tải đúng sheet hiện tại để tránh timeout.")
+            st.info("Đang dùng Google Sheets API để đọc gạch chân/in đậm. Dữ liệu được cache 1 giờ, nên khi làm quiz sẽ không phải tải lại sheet sau mỗi câu.")
         else:
             st.info("Đang dùng chế độ CSV nhanh. Chế độ này không đọc được gạch chân/in đậm.")
 
