@@ -27,6 +27,33 @@ LOGO_PATH = APP_DIR / "2612.png"
 
 DEFAULT_GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=881137373#gid=881137373"
 
+SAVED_GOOGLE_SHEETS = {
+    "NhapLieu": "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=881137373#gid=881137373",
+    "trang 21-24": "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=418545698#gid=418545698",
+    "ngu phap": "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=268035535#gid=268035535",
+}
+
+SAVED_SHEET_COLUMNS = {
+    "NhapLieu": {
+        "kr": "B",
+        "vi": "A",
+        "detail": "C",
+        "synonym": "",
+    },
+    "trang 21-24": {
+        "kr": "C",
+        "vi": "",
+        "detail": "E",
+        "synonym": "G",
+    },
+    "ngu phap": {
+        "kr": "D",
+        "vi": "E",
+        "detail": "F",
+        "synonym": "G",
+    },
+}
+
 STATE_FILE = APP_DIR / "app_star_state.json"
 
 BUTTON_SUPPORTS_SHORTCUT = "shortcut" in inspect.signature(st.button).parameters
@@ -893,16 +920,31 @@ with st.sidebar:
     st.header("1) Nguồn dữ liệu")
 
     source = st.radio("Chọn nguồn", ["Google Sheets link", "Upload file"])
-    sheet_name = st.text_input("Tên sheet", value="nhaplieu")
 
     google_url = ""
+    sheet_name = ""
     uploaded = None
 
     if source == "Google Sheets link":
-        google_url = st.text_input(
-            "Dán link Google Sheets",
-            value=DEFAULT_GOOGLE_SHEET_URL
+        saved_sheet_choice = st.selectbox(
+            "Chọn Google Sheet đã lưu",
+            list(SAVED_GOOGLE_SHEETS) + ["Link khác"],
+            index=0,
+            key="saved_google_sheet_choice"
         )
+
+        if saved_sheet_choice == "Link khác":
+            sheet_name = st.text_input("Tên sheet", value="nhaplieu")
+            google_url = st.text_input(
+                "Dán link Google Sheets",
+                value=DEFAULT_GOOGLE_SHEET_URL
+            )
+        else:
+            sheet_name = saved_sheet_choice
+            google_url = SAVED_GOOGLE_SHEETS[saved_sheet_choice]
+            st.success(f"Đã chọn: {saved_sheet_choice}")
+            st.caption(google_url)
+
         st.info("Share Google Sheets: Anyone with the link → Viewer.")
     else:
         uploaded = st.file_uploader("Upload Excel/CSV", type=["xlsx", "xlsm", "csv"])
@@ -910,10 +952,36 @@ with st.sidebar:
     st.header("2) Chọn cột")
     st.caption("Ví dụ của bạn: C = ngữ pháp ban đầu, F hoặc H = từ đồng nghĩa.")
 
-    kr_col = st.text_input("Cột tiếng Hàn / ngữ pháp ban đầu", value="")
-    vi_col = st.text_input("Cột nghĩa tiếng Việt", value="")
-    detail_col = st.text_input("Cột giải thích / ví dụ", value="")
-    synonym_col = st.text_input("Cột từ đồng nghĩa / đáp án thay thế", value="")
+    if source == "Google Sheets link" and saved_sheet_choice != "Link khác":
+        column_profile_name = saved_sheet_choice
+        column_defaults = SAVED_SHEET_COLUMNS[saved_sheet_choice]
+    elif source == "Google Sheets link":
+        column_profile_name = "custom_link"
+        column_defaults = {"kr": "", "vi": "", "detail": "", "synonym": ""}
+    else:
+        column_profile_name = "uploaded_file"
+        column_defaults = {"kr": "", "vi": "", "detail": "", "synonym": ""}
+
+    kr_col = st.text_input(
+        "Cột tiếng Hàn / ngữ pháp ban đầu",
+        value=column_defaults["kr"],
+        key=f"kr_col_{column_profile_name}"
+    )
+    vi_col = st.text_input(
+        "Cột nghĩa tiếng Việt",
+        value=column_defaults["vi"],
+        key=f"vi_col_{column_profile_name}"
+    )
+    detail_col = st.text_input(
+        "Cột giải thích / ví dụ",
+        value=column_defaults["detail"],
+        key=f"detail_col_{column_profile_name}"
+    )
+    synonym_col = st.text_input(
+        "Cột từ đồng nghĩa / đáp án thay thế",
+        value=column_defaults["synonym"],
+        key=f"synonym_col_{column_profile_name}"
+    )
 
     auto_fill_merged = st.checkbox(
         "Tự nhận diện ô gộp / điền dữ liệu xuống dòng dưới",
