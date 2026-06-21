@@ -6,6 +6,8 @@ import html
 import inspect
 import json
 import difflib
+import textwrap
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -20,7 +22,7 @@ except Exception:
     MIC_AVAILABLE = False
 
 
-st.set_page_config(page_title="Bùi Văn Toàn V13", page_icon="📁", layout="wide")
+st.set_page_config(page_title="Bùi Văn Toàn V13", page_icon="📁", layout="wide", initial_sidebar_state="expanded")
 
 APP_DIR = Path(__file__).parent
 LOGO_PATH = APP_DIR / "2612.png"
@@ -817,7 +819,7 @@ def reset_write():
     st.session_state.write_cards_order = []
 
 
-def reset_quiz(clear_mastered=False):
+def reset_quiz(clear_mastered=False, clear_attempts=True, clear_retry_filter=True):
     st.session_state.quiz_q = None
     st.session_state.quiz_options = []
     st.session_state.quiz_last_result = None
@@ -834,6 +836,13 @@ def reset_quiz(clear_mastered=False):
     st.session_state.quiz_review_count = 0
     st.session_state.quiz_completed = False
     st.session_state.quiz_last_option_orders = {}
+    st.session_state.quiz_history_saved = False
+
+    if clear_attempts:
+        st.session_state.quiz_attempt_stats = {}
+
+    if clear_retry_filter:
+        st.session_state.quiz_retry_only_keys = set()
 
     if clear_mastered:
         st.session_state.quiz_mastered_keys = set()
@@ -927,6 +936,10 @@ for k, v in {
     "quiz_last_option_orders": {},
     "quiz_mastered_keys": set(),
     "quiz_settings_version": 0,
+    "quiz_attempt_stats": {},
+    "quiz_history": [],
+    "quiz_history_saved": False,
+    "quiz_retry_only_keys": set(),
     "speaking_i": 0,
     "speaking_cards_order": [],
     "speaking_last_text": "",
@@ -951,7 +964,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.caption("Bản V13: tự nhận diện ô gộp, gộp ngữ pháp trùng và gom từ đồng nghĩa để học thuận tiện hơn.")
+st.caption("BẢN V14 - CÓ TỔNG KẾT QUIZ THEO VÒNG: sau khi hoàn thành sẽ hiện Vòng 1, Vòng 2, sai 1 lần/sai 2 lần và nút học lại từ sai.")
 
 
 with st.sidebar:
@@ -1099,6 +1112,10 @@ try:
         st.session_state.quiz_completed = False
         st.session_state.quiz_last_option_orders = {}
         st.session_state.quiz_mastered_keys = set()
+        st.session_state.quiz_attempt_stats = {}
+        st.session_state.quiz_history = []
+        st.session_state.quiz_history_saved = False
+        st.session_state.quiz_retry_only_keys = set()
         st.session_state.speaking_cards_order = []
         if "learn_card" in st.session_state:
             del st.session_state["learn_card"]
@@ -1631,6 +1648,7 @@ try:
 
     with tab_quiz:
         st.subheader(f"📝 Quiz — Bộ {st.session_state.folder_no:03d}")
+        st.info("✅ Bản V14: Sau khi làm xong lượt quiz, phần tổng kết theo Vòng sẽ hiện ngay bên dưới.")
 
         with st.expander("⚙️ Cài đặt học tập", expanded=False):
             st.markdown("##### Chế độ trả lời")
@@ -1754,18 +1772,17 @@ try:
             if not question or not answer or normalize_quiz_key(question) == normalize_quiz_key(answer):
                 return
 
-            entry = {
-                "card": card,
-                "question": question,
-                "answer": answer,
-                "correct_variants": correct_variants,
-                "direction": direction,
-            }
             entry_key = (
-                direction + "|"
-                + normalize_quiz_key(question) + "|"
+                direction
+                + "|"
+                + normalize_quiz_key(question)
+                + "|"
                 + normalize_quiz_key(answer)
             )
+
+            retry_only_keys = st.session_state.get("quiz_retry_only_keys", set())
+            if retry_only_keys and entry_key not in retry_only_keys:
+                return
 
             if entry_key in seen_quiz_entries:
                 return
@@ -1773,9 +1790,17 @@ try:
             if only_unmastered and entry_key in st.session_state.get("quiz_mastered_keys", set()):
                 return
 
+            entry = {
+                "card": card,
+                "question": question,
+                "answer": answer,
+                "correct_variants": correct_variants,
+                "direction": direction,
+                "key": entry_key,
+            }
+
             seen_quiz_entries.add(entry_key)
             valid_for_quiz.append(entry)
-
         for source_card in quiz_source:
             kr_text = clean_text(source_card.get("kr", ""))
             synonym_answers = split_answer_parts(source_card.get("synonyms", ""))
@@ -1839,13 +1864,22 @@ try:
         if only_starred:
             st.info(f"Đang quiz {len(quiz_source)} thẻ đã gắn sao trong Bộ {st.session_state.folder_no:03d}.")
 
+        if st.session_state.get("quiz_retry_only_keys"):
+            st.warning(f"🔁 Đang ở chế độ học lại {len(st.session_state.quiz_retry_only_keys)} câu đã từng sai.")
+            if st.button("Thoát chế độ học lại từ sai", key="quiz_exit_retry_only", use_container_width=True):
+                reset_quiz(clear_mastered=True, clear_attempts=True, clear_retry_filter=True)
+                st.rerun()
+
         mastered_count = len(st.session_state.get("quiz_mastered_keys", set()))
         st.caption(f"🎓 Đã thuộc trong phiên này: {mastered_count} câu.")
 
-        minimum_answers = 4 if quiz_multiple_choice else 1
+        # Khi học lại chỉ các câu sai, có thể chỉ còn 1–3 câu.
+        # Vì vậy không ép phải đủ 4 đáp án, tránh lỗi "Cần ít nhất 4 đáp án".
+        retry_mode_active = bool(st.session_state.get("quiz_retry_only_keys"))
+        minimum_answers = 1 if retry_mode_active else (4 if quiz_multiple_choice else 1)
 
         if len(valid_for_quiz) < minimum_answers:
-            st.warning(f"Cần ít nhất {minimum_answers} đáp án hợp lệ với cài đặt hiện tại.")
+            st.warning(f"Cần ít nhất {minimum_answers} câu hỏi hợp lệ với cài đặt hiện tại.")
         else:
             def pick_one_answer(card):
                 answers = answer_variants_for_card_filtered(card, all_term_norms_for_quiz)
@@ -1865,6 +1899,231 @@ try:
                     + normalize_quiz_key(entry.get("answer", ""))
                 )
 
+            def get_quiz_summary_rows():
+                rows = []
+                stats = st.session_state.get("quiz_attempt_stats", {})
+
+                for item in stats.values():
+                    attempt_count = int(item.get("attempt_count", 0) or 0)
+
+                    if attempt_count <= 0:
+                        continue
+
+                    rows.append({
+                        "key": item.get("key", ""),
+                        "Câu hỏi": item.get("question", ""),
+                        "Đáp án đúng": item.get("answer", ""),
+                        "Bạn chọn gần nhất": item.get("last_selected", ""),
+                        "Số lần sai": int(item.get("wrong_count", 0) or 0),
+                        "Số lần đúng": int(item.get("correct_count", 0) or 0),
+                        "Tổng lần trả lời": attempt_count,
+                        "Kết quả gần nhất": item.get("last_result", ""),
+                        "Chi tiết / ví dụ": item.get("detail", ""),
+                    })
+
+                rows.sort(key=lambda x: (-x["Số lần sai"], x["Câu hỏi"]))
+                return rows
+
+            def make_quiz_history_item(total_quiz, regular_done, review_done):
+                rows = get_quiz_summary_rows()
+                wrong_rows = [r for r in rows if r["Số lần sai"] > 0]
+
+                return {
+                    "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "folder_no": st.session_state.folder_no,
+                    "total_questions": total_quiz,
+                    "regular_done": regular_done,
+                    "review_done": review_done,
+                    "answered_terms": len(rows),
+                    "wrong_terms": len(wrong_rows),
+                    "wrong_once": sum(1 for r in wrong_rows if r["Số lần sai"] == 1),
+                    "wrong_twice": sum(1 for r in wrong_rows if r["Số lần sai"] == 2),
+                    "wrong_three_plus": sum(1 for r in wrong_rows if r["Số lần sai"] >= 3),
+                    "wrong_total_attempts": sum(r["Số lần sai"] for r in wrong_rows),
+                    "rows": rows,
+                }
+
+            def save_quiz_history_once(total_quiz, regular_done, review_done):
+                if st.session_state.get("quiz_history_saved"):
+                    return
+
+                item = make_quiz_history_item(total_quiz, regular_done, review_done)
+
+                if item["answered_terms"] > 0:
+                    st.session_state.quiz_history.append(item)
+
+                st.session_state.quiz_history_saved = True
+
+            def start_retry_from_wrong_keys(wrong_keys):
+                wrong_keys = set(wrong_keys or [])
+
+                if not wrong_keys:
+                    return
+
+                # Gắn sao các thẻ sai để dễ xem lại trong tab Đã gắn sao.
+                for entry in valid_for_quiz:
+                    if quiz_entry_key(entry) in wrong_keys:
+                        entry.get("card", {})["starred"] = True
+
+                persist_starred_state(st.session_state.applied_cards, st.session_state.applied_data_key)
+                st.session_state.quiz_retry_only_keys = set(wrong_keys)
+                reset_quiz(clear_mastered=True, clear_attempts=True, clear_retry_filter=False)
+                st.rerun()
+
+            def start_retry_all_questions():
+                reset_quiz(clear_mastered=True, clear_attempts=True, clear_retry_filter=True)
+                st.rerun()
+
+            def render_one_quiz_round_card(item, round_index, show_buttons=True):
+                rows = item.get("rows", []) or []
+                total_rows = len(rows)
+                correct_rows = [row for row in rows if int(row.get("Số lần sai", 0) or 0) == 0]
+                wrong_rows = [row for row in rows if int(row.get("Số lần sai", 0) or 0) > 0]
+                wrong_keys = {row.get("key", "") for row in wrong_rows if row.get("key")}
+                percent = round((len(correct_rows) / total_rows) * 100) if total_rows else 0
+
+                html_rows = []
+                for row in rows:
+                    wrong_count = int(row.get("Số lần sai", 0) or 0)
+                    ok = wrong_count == 0
+                    icon = "✓" if ok else "×"
+                    icon_color = "#22c55e" if ok else "#ff6b4a"
+                    question = html.escape(str(row.get("Câu hỏi", "")))
+                    answer = html.escape(str(row.get("Đáp án đúng", "")))
+                    note = "" if ok else f"<span style='font-size:13px;color:#fca5a5;margin-left:10px;'>sai {wrong_count} lần</span>"
+                    html_rows.append(
+                        f"""
+                        <div style="display:grid;grid-template-columns:44px 1fr 1fr;gap:12px;align-items:center;padding:14px 8px;">
+                            <div style="color:{icon_color};font-size:24px;font-weight:900;text-align:center;">{icon}</div>
+                            <div style="font-size:18px;color:#f8fafc;">{question}{note}</div>
+                            <div style="font-size:18px;color:#f8fafc;">{answer}</div>
+                        </div>
+                        """
+                    )
+
+                rows_html = "\n".join(textwrap.dedent(row).strip() for row in html_rows) if html_rows else "<div style='color:#94a3b8;padding:16px;'>Chưa có dữ liệu.</div>"
+
+                st.markdown(
+                    textwrap.dedent(f"""
+                    <div style="background:#171a24;border-radius:4px;padding:30px 36px;margin:12px 0 10px 0;border:1px solid #242838;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
+                            <div>
+                                <div style="font-size:28px;font-weight:900;color:#ffffff;margin-bottom:4px;">Vòng {round_index}</div>
+                                <div style="font-size:20px;font-weight:900;color:#ffffff;">{len(correct_rows)}/{total_rows} - {percent}%</div>
+                            </div>
+                            <div style="font-size:14px;color:#94a3b8;text-align:right;">
+                                Sai 1 lần: <b>{item.get('wrong_once', 0)}</b><br>
+                                Sai 2 lần: <b>{item.get('wrong_twice', 0)}</b><br>
+                                Sai ≥3 lần: <b>{item.get('wrong_three_plus', 0)}</b>
+                            </div>
+                        </div>
+                        <div style="height:18px;"></div>
+                        {rows_html}
+                    </div>
+                    """).strip(),
+                    unsafe_allow_html=True
+                )
+
+                if show_buttons:
+                    b1, b2, b3 = st.columns([2, 2, 5])
+                    with b1:
+                        if st.button("Bắt đầu lại", key=f"quiz_restart_round_{round_index}", use_container_width=True):
+                            start_retry_all_questions()
+                    with b2:
+                        if st.button(
+                            "⭐ Học lại các từ sai",
+                            key=f"quiz_retry_wrong_round_{round_index}",
+                            use_container_width=True,
+                            disabled=not bool(wrong_keys)
+                        ):
+                            start_retry_from_wrong_keys(wrong_keys)
+
+            def render_quiz_round_history_cards():
+                history = st.session_state.get("quiz_history", [])
+
+                if not history:
+                    return
+
+                st.markdown("### 📚 Kết quả theo vòng")
+                st.caption("Dấu × là câu bạn từng chọn sai trong vòng đó. Bấm ⭐ Học lại các từ sai để app chỉ hỏi lại những câu sai.")
+
+                for idx, item in enumerate(history, start=1):
+                    render_one_quiz_round_card(item, idx, show_buttons=True)
+
+            def render_quiz_history():
+                # Giữ tên hàm cũ để các phần khác của code vẫn gọi được,
+                # nhưng đổi cách hiển thị thành dạng Vòng 1, Vòng 2 như mẫu.
+                render_quiz_round_history_cards()
+
+            def record_quiz_attempt(entry, selected_option, ok):
+                if not entry:
+                    return
+
+                key = quiz_entry_key(entry)
+
+                if not key:
+                    return
+
+                if "quiz_attempt_stats" not in st.session_state or not isinstance(st.session_state.quiz_attempt_stats, dict):
+                    st.session_state.quiz_attempt_stats = {}
+
+                card = entry.get("card", {})
+                stats = st.session_state.quiz_attempt_stats
+                item = stats.get(key, {
+                    "key": key,
+                    "question": entry.get("question", ""),
+                    "answer": entry.get("answer", ""),
+                    "correct_variants": list(entry.get("correct_variants", [])),
+                    "direction": entry.get("direction", ""),
+                    "kr": card.get("kr", ""),
+                    "vi": card.get("vi", ""),
+                    "detail": card.get("detail", ""),
+                    "synonyms": card.get("synonyms", ""),
+                    "wrong_count": 0,
+                    "correct_count": 0,
+                    "attempt_count": 0,
+                    "last_selected": "",
+                    "last_result": "",
+                    "last_time": "",
+                })
+
+                item["attempt_count"] = int(item.get("attempt_count", 0) or 0) + 1
+
+                if ok:
+                    item["correct_count"] = int(item.get("correct_count", 0) or 0) + 1
+                    item["last_result"] = "Đúng"
+                else:
+                    item["wrong_count"] = int(item.get("wrong_count", 0) or 0) + 1
+                    item["last_result"] = "Sai"
+
+                item["last_selected"] = clean_text(selected_option)
+                item["last_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                stats[key] = item
+
+            def render_quiz_completion_summary(total_quiz, regular_done, review_done):
+                save_quiz_history_once(total_quiz, regular_done, review_done)
+                history = st.session_state.get("quiz_history", [])
+
+                if not history:
+                    st.info("Chưa có dữ liệu tổng kết.")
+                    return
+
+                last_item = history[-1]
+                rows = last_item.get("rows", []) or []
+                wrong_rows = [row for row in rows if int(row.get("Số lần sai", 0) or 0) > 0]
+                total_answered = len(rows)
+                correct_terms = total_answered - len(wrong_rows)
+                percent = round((correct_terms / total_answered) * 100) if total_answered else 0
+
+                st.markdown("### 📊 Tổng kết lượt quiz")
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Điểm", f"{correct_terms}/{total_answered}")
+                m2.metric("Tỉ lệ đúng", f"{percent}%")
+                m3.metric("Từ bị sai", len(wrong_rows))
+                m4.metric("Sai 1 lần", last_item.get("wrong_once", 0))
+                m5.metric("Sai ≥2 lần", int(last_item.get("wrong_twice", 0) or 0) + int(last_item.get("wrong_three_plus", 0) or 0))
+
+                render_quiz_round_history_cards()
             def add_wrong_review(entry):
                 """
                 Nếu trả lời sai, đưa câu đó vào hàng chờ ôn lại.
@@ -2047,8 +2306,11 @@ try:
                 
             def check_answer(selected_option):
                 current_entry = st.session_state.get("quiz_current_entry")
+                ok = current_quiz_answer_is_correct(selected_option)
 
-                if current_quiz_answer_is_correct(selected_option):
+                record_quiz_attempt(current_entry, selected_option, ok)
+
+                if ok:
                     if current_entry:
                         st.session_state.quiz_mastered_keys.add(quiz_entry_key(current_entry))
 
@@ -2107,9 +2369,7 @@ try:
                     + (f" và {review_done} câu ôn lại." if review_done else ".")
                 )
 
-                if st.button("🔄 Làm lại từ đầu", key="quiz_restart_btn", use_container_width=True):
-                    reset_quiz(clear_mastered=True)
-                    st.rerun()
+                render_quiz_completion_summary(total_quiz, regular_done, review_done)
 
                 st.stop()
 
