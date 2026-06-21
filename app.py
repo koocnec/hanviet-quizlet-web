@@ -224,8 +224,43 @@ def clean_text(x):
 
 
 def split_answer_parts(text: str):
-    parts = re.split(r"[\r\n]+", clean_text(text))
-    return [p.strip() for p in parts if p.strip()]
+    """
+    Tách nhiều đáp án trong một ô.
+
+    Quan trọng:
+    - Chỉ tách dấu "/" khi nó có khoảng trắng hai bên: " / "
+      Ví dụ: "아/어도 / 지 않아도 / (으)ㄴ 것도 없이"
+      sẽ tách thành:
+      1) 아/어도
+      2) 지 않아도
+      3) (으)ㄴ 것도 없이
+
+    - Không tách dấu "/" nằm trong bản thân ngữ pháp:
+      "아/어도", "(으)ㄴ/는", "V/A" vẫn được giữ nguyên.
+    """
+    raw = clean_text(text)
+
+    if not raw:
+        return []
+
+    parts = []
+
+    for line in re.split(r"[\r\n]+", raw):
+        line = line.strip()
+
+        if not line:
+            continue
+
+        # Tách các đáp án dạng A / B / C, nhưng không phá "아/어도", "(으)ㄴ/는", "V/A"
+        sub_parts = re.split(r"\s+[/／]\s+", line)
+
+        for part in sub_parts:
+            part = part.strip()
+
+            if part:
+                parts.append(part)
+
+    return parts
 
 
 def normalize_answer(s: str) -> str:
@@ -234,6 +269,60 @@ def normalize_answer(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     s = re.sub(r"[.,;:!?()\[\]{}'\"`~]", "", s)
     return s.strip()
+
+
+def normalize_quiz_key(s: str) -> str:
+    """
+    Chuẩn hóa riêng cho Quiz để so sánh cột G với toàn bộ cột C.
+    Mục tiêu: các dạng sau được coi là trùng nhau:
+    - "-(으)ㄹ까요", "(으)ㄹ까요", "V-(으)ㄹ까요", "V/A + (으)ㄹ까요"
+    - "아/어 보다", "V-아/어 보다"
+    - khác nhau do khoảng trắng, dấu -, /, +, ngoặc, dấu chấm...
+    """
+    s = clean_text(s).lower()
+    s = unicodedata.normalize("NFKC", s)
+
+    # Bỏ ký hiệu HTML / mũi tên / bullet thường gặp trong dữ liệu học
+    s = html.unescape(s)
+    s = s.replace("➜", " ").replace("→", " ").replace("⇒", " ")
+    s = s.replace("ㆍ", " ").replace("·", " ").replace("•", " ")
+
+    # Bỏ nhãn loại từ/ngữ pháp ở đầu: V-, A-, N-, V/A +, V/N + ...
+    s = re.sub(r"^\s*(v|a|n|adj|verb|noun)\s*[/+,-]\s*", "", s)
+    s = re.sub(r"^\s*(v\s*/\s*a|a\s*/\s*v|v\s*/\s*n|n\s*/\s*v)\s*[/+,-]?\s*", "", s)
+
+    # Bỏ toàn bộ khoảng trắng và hầu hết ký hiệu phân tách
+    s = re.sub(r"\s+", "", s)
+    s = re.sub(r"[\\/\-+_=.,;:!?~`'\"|]", "", s)
+    s = re.sub(r"[()\[\]{}<>〈〉《》「」『』]", "", s)
+
+    # Chuẩn hóa một số ký tự gạch/dấu giống nhau
+    s = s.replace("–", "").replace("—", "").replace("−", "")
+
+    return s.strip()
+
+
+def is_same_as_any_term(answer_key: str, all_term_keys: set) -> bool:
+    """
+    Trả True nếu đáp án ở cột G trùng với bất kỳ thuật ngữ nào ở cột C.
+    Ngoài trùng tuyệt đối, có xét trường hợp một bên còn dư tiền tố/ký hiệu.
+    """
+    if not answer_key:
+        return False
+
+    if answer_key in all_term_keys:
+        return True
+
+    # Nếu một bên chứa bên còn lại và độ dài đủ dài thì coi như trùng.
+    # Dùng để bắt các dạng như "v아어보다" vs "아어보다".
+    for term_key in all_term_keys:
+        if not term_key:
+            continue
+        short_len = min(len(answer_key), len(term_key))
+        if short_len >= 3 and (answer_key in term_key or term_key in answer_key):
+            return True
+
+    return False
 
 
 def unique_join(old_text: str, new_text: str, sep: str = "\n"):
@@ -366,7 +455,9 @@ def answer_variants(correct_answer: str, extra_answers: str = ""):
     variants = []
 
     if clean_text(correct_answer) != "Chưa có nghĩa":
+        # Giữ cả cụm gốc để hiển thị đáp án đầy đủ
         variants.append(clean_text(correct_answer))
+        # Thêm từng đáp án con để khi chọn "아/어도" vẫn được tính đúng
         variants.extend(split_answer_parts(correct_answer))
 
     variants.extend(split_answer_parts(extra_answers))
@@ -375,7 +466,11 @@ def answer_variants(correct_answer: str, extra_answers: str = ""):
     seen = set()
 
     for item in variants:
-        norm = normalize_answer(item)
+        # Nếu normalize_quiz_key đã được định nghĩa thì dùng để chống trùng mạnh hơn.
+        try:
+            norm = normalize_quiz_key(item)
+        except NameError:
+            norm = normalize_answer(item)
 
         if item and norm and norm not in seen:
             unique.append(item)
@@ -386,6 +481,80 @@ def answer_variants(correct_answer: str, extra_answers: str = ""):
 
 def format_expected_answer(correct_answer: str, extra_answers: str = "") -> str:
     return "\n".join(answer_variants(correct_answer, extra_answers))
+
+
+def unique_by_quiz_key(items):
+    unique = []
+    seen = set()
+
+    for item in items:
+        key = normalize_quiz_key(item)
+
+        if item and key and key not in seen:
+            unique.append(item)
+            seen.add(key)
+
+    return unique
+
+
+def quiz_match_keys(s: str):
+    """
+    Tạo nhiều kiểu key để so sánh đáp án chắc hơn.
+    Dùng cả normalize_quiz_key và normalize_answer để tránh lỗi:
+    - Có dấu / trong ngữ pháp.
+    - Có ngoặc, dấu gạch, khoảng trắng.
+    - Đáp án đúng được lưu dạng "A / B / C" nhưng người học chọn riêng A.
+    """
+    keys = set()
+
+    for part in [clean_text(s)] + split_answer_parts(s):
+        if not part:
+            continue
+
+        k1 = normalize_quiz_key(part)
+        k2 = normalize_answer(part)
+
+        if k1:
+            keys.add(k1)
+
+        if k2:
+            keys.add(k2)
+
+    return keys
+
+
+def quiz_answer_matches(selected_option: str, correct_variants) -> bool:
+    selected_keys = quiz_match_keys(selected_option)
+
+    if not selected_keys:
+        return False
+
+    correct_keys = set()
+
+    for ans in correct_variants:
+        correct_keys.update(quiz_match_keys(ans))
+
+    return bool(selected_keys & correct_keys)
+
+
+def current_quiz_answer_is_correct(selected_option: str) -> bool:
+    """
+    Kiểm tra đáp án hiện tại thật chắc.
+    Dùng cho trường hợp:
+    - Người học trả lời sai trước.
+    - App hiện đáp án.
+    - Người học chọn lại đáp án đúng.
+    Khi đúng thì phải tự chuyển câu.
+    """
+    correct_variants = st.session_state.get("quiz_correct_variants", [])
+    correct_option = st.session_state.get("quiz_correct", "")
+
+    all_correct = []
+    all_correct.extend(correct_variants)
+    all_correct.append(correct_option)
+    all_correct.extend(split_answer_parts(correct_option))
+
+    return quiz_answer_matches(selected_option, all_correct)
 
 
 def answer_variants_for_card(card: dict, question_text: str = ""):
@@ -421,6 +590,95 @@ def quiz_entries_for_card(card: dict):
         for x in answer_variants_for_card(card)
         if clean_text(x)
     ]
+
+
+def build_all_term_norms(cards):
+    """
+    Lấy toàn bộ thuật ngữ ở cột C / cột câu hỏi.
+    Dùng normalize_quiz_key để so sánh mạnh hơn:
+    - bỏ V/A/N, dấu -, /, +, ngoặc, khoảng trắng...
+    """
+    return {
+        normalize_quiz_key(card.get("kr", ""))
+        for card in cards
+        if clean_text(card.get("kr", ""))
+    }
+
+
+def answer_variants_for_card_filtered(card: dict, all_term_norms=None):
+    """
+    Lấy các đáp án hợp lệ cho quiz.
+    - Tách nhiều đáp án theo từng dòng.
+    - Loại đáp án trùng chính câu hỏi hiện tại.
+    - Loại đáp án trùng với BẤT KỲ thuật ngữ nào trong cột C.
+    - So sánh bằng normalize_quiz_key nên bắt được cả dạng khác dấu/khoảng trắng.
+    """
+    if all_term_norms is None:
+        all_term_norms = set()
+
+    question_norm = normalize_quiz_key(card.get("kr", ""))
+    filtered = []
+    seen = set()
+
+    for item in answer_variants_for_card(card):
+        ans_norm = normalize_quiz_key(item)
+
+        if not item or not ans_norm:
+            continue
+
+        # Loại nếu đáp án trùng với chính câu hỏi
+        if question_norm and ans_norm == question_norm:
+            continue
+
+        # Loại nếu đáp án trùng với bất kỳ thuật ngữ nào trong cột C
+        if is_same_as_any_term(ans_norm, all_term_norms):
+            continue
+
+        if ans_norm in seen:
+            continue
+
+        filtered.append(item)
+        seen.add(ans_norm)
+
+    return filtered
+
+
+def quiz_entries_filtered(cards_subset, all_cards):
+    """
+    Tạo danh sách quiz đã lọc.
+
+    Điểm sửa quan trọng:
+    1) So sánh cột G với TOÀN BỘ cột C bằng normalize_quiz_key.
+    2) Mỗi đáp án hợp lệ chỉ tính 1 lần trong quiz.
+       Trước đây nếu cùng một đáp án xuất hiện ở nhiều dòng khác nhau,
+       app vẫn đếm nhiều lần nên còn 85 thay vì số bạn đếm thủ công.
+    """
+    all_term_norms = build_all_term_norms(all_cards)
+    entries = []
+    seen_answers = set()
+
+    for card in cards_subset:
+        if not card.get("kr"):
+            continue
+
+        for ans in answer_variants_for_card_filtered(card, all_term_norms):
+            ans_norm = normalize_quiz_key(ans)
+
+            if not ans_norm:
+                continue
+
+            # Tránh đếm lặp cùng một đáp án ở nhiều dòng / nhiều thuật ngữ
+            if ans_norm in seen_answers:
+                continue
+
+            seen_answers.add(ans_norm)
+
+            entries.append({
+                "card": card,
+                "answer": ans,
+            })
+
+    return entries
 
 
 def normalize_speaking_text(s: str) -> str:
@@ -505,6 +763,17 @@ def reset_quiz():
     st.session_state.quiz_last_result = None
     st.session_state.quiz_round = 0
     st.session_state.quiz_show_detail = False
+    st.session_state.quiz_wrong_queue = []
+    st.session_state.quiz_wrong_keys = set()
+    st.session_state.quiz_since_wrong_review = 0
+    st.session_state.quiz_is_review = False
+
+    # V6: quản lý một lượt quiz hữu hạn.
+    # Câu thường chỉ hỏi đủ total_quiz câu, sau đó chỉ hỏi nốt câu sai đang chờ ôn lại rồi dừng.
+    st.session_state.quiz_seen_keys = set()
+    st.session_state.quiz_review_count = 0
+    st.session_state.quiz_completed = False
+    st.session_state.quiz_last_option_orders = {}
 
 
 def reset_speaking():
@@ -585,6 +854,14 @@ for k, v in {
     "quiz_last_result": None,
     "quiz_round": 0,
     "quiz_show_detail": False,
+    "quiz_wrong_queue": [],
+    "quiz_wrong_keys": set(),
+    "quiz_since_wrong_review": 0,
+    "quiz_is_review": False,
+    "quiz_seen_keys": set(),
+    "quiz_review_count": 0,
+    "quiz_completed": False,
+    "quiz_last_option_orders": {},
     "speaking_i": 0,
     "speaking_cards_order": [],
     "speaking_last_text": "",
@@ -707,6 +984,14 @@ try:
         st.session_state.quiz_q = None
         st.session_state.quiz_options = []
         st.session_state.quiz_last_result = None
+        st.session_state.quiz_wrong_queue = []
+        st.session_state.quiz_wrong_keys = set()
+        st.session_state.quiz_since_wrong_review = 0
+        st.session_state.quiz_is_review = False
+        st.session_state.quiz_seen_keys = set()
+        st.session_state.quiz_review_count = 0
+        st.session_state.quiz_completed = False
+        st.session_state.quiz_last_option_orders = {}
         st.session_state.speaking_cards_order = []
         if "learn_card" in st.session_state:
             del st.session_state["learn_card"]
@@ -738,11 +1023,7 @@ try:
     if st.session_state.folder_no > total_folders:
         st.session_state.folder_no = 1
 
-    quiz_total = sum(
-        len(quiz_entries_for_card(card))
-        for card in cards_all
-        if card.get("kr")
-    )
+    quiz_card_count = len(quiz_entries_filtered(cards_all, cards_all))
 
     st.success(
         f"Đã tạo {total:,} thẻ. "
@@ -755,7 +1036,7 @@ try:
     c3.metric("Thiếu giải thích", f"{stats['missing_detail']:,}")
     c4.metric("Thiếu đồng nghĩa", f"{stats['missing_synonyms']:,}")
     c5.metric("Bỏ qua vì thiếu tiếng Hàn", f"{stats['skipped_no_kr']:,}")
-    c6.metric("Số quiz", f"{quiz_total:,}")
+    c6.metric("Số quiz", f"{quiz_card_count:,}")
 
     top_cols = st.columns([1, 2, 1])
 
@@ -779,15 +1060,11 @@ try:
             choose_folder(st.session_state.folder_no + 1)
 
     cards, start_num, end_num = get_folder(cards_all, st.session_state.folder_no, folder_size)
-    folder_quiz_total = sum(
-        len(quiz_entries_for_card(card))
-        for card in cards
-        if card.get("kr")
-    )
+    folder_quiz_card_count = len(quiz_entries_filtered(cards, cards_all))
 
     st.info(
         f"Đang học: Bộ {st.session_state.folder_no:03d} | "
-        f"từ {start_num}–{end_num} | {len(cards)} thẻ | {folder_quiz_total} quiz"
+        f"từ {start_num}–{end_num} | {len(cards)} thẻ | {folder_quiz_card_count} quiz"
     )
 
     tab_input, tab_folder, tab_starred, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
@@ -1247,18 +1524,15 @@ try:
         if only_starred:
             st.info(f"Đang quiz {len(quiz_source)} thẻ đã gắn sao trong Bộ {st.session_state.folder_no:03d}.")
 
-        valid_for_quiz = [
-            entry
-            for card in quiz_source
-            if card.get("kr")
-            for entry in quiz_entries_for_card(card)
-        ]
+        valid_for_quiz = quiz_entries_filtered(quiz_source, cards_all)
 
         if len(valid_for_quiz) < 4:
             st.warning("Cần ít nhất 4 đáp án hợp lệ để làm quiz.")
         else:
+            all_term_norms_for_quiz = build_all_term_norms(cards_all)
+
             def pick_one_answer(card):
-                answers = answer_variants_for_card(card)
+                answers = answer_variants_for_card_filtered(card, all_term_norms_for_quiz)
                 answers = [x for x in answers if clean_text(x)]
 
                 if not answers:
@@ -1266,35 +1540,161 @@ try:
 
                 return random.choice(answers)
 
+            def quiz_entry_key(entry):
+                return (
+                    normalize_quiz_key(entry["card"].get("kr", ""))
+                    + "|"
+                    + normalize_quiz_key(entry.get("answer", ""))
+                )
+
+            def add_wrong_review(entry):
+                """
+                Nếu trả lời sai, đưa câu đó vào hàng chờ ôn lại.
+                Câu sai sẽ được hỏi thêm 1 lần nữa sau khoảng 5 câu thường.
+                Nếu lần ôn lại vẫn sai, nó sẽ tiếp tục được đưa lại vào hàng chờ.
+                """
+                key = quiz_entry_key(entry)
+
+                if not key:
+                    return
+
+                if "quiz_wrong_keys" not in st.session_state or not isinstance(st.session_state.quiz_wrong_keys, set):
+                    st.session_state.quiz_wrong_keys = set(st.session_state.get("quiz_wrong_keys", []))
+
+                if key in st.session_state.quiz_wrong_keys:
+                    return
+
+                st.session_state.quiz_wrong_keys.add(key)
+                st.session_state.quiz_wrong_queue.append({
+                    "card": entry["card"],
+                    "answer": entry["answer"],
+                })
+
+            def get_next_quiz_entry():
+                """
+                V6 - Quizlet-style nhưng KHÔNG chạy quá vô hạn.
+
+                Cách hoạt động:
+                1) Câu thường: mỗi đáp án hợp lệ chỉ hỏi 1 lần trong lượt hiện tại.
+                2) Nếu sai: đưa vào hàng chờ ôn lại.
+                3) Sau khoảng 3 câu thường, app hỏi lại câu sai.
+                4) Khi đã hỏi hết câu thường và không còn câu sai chờ ôn lại -> dừng quiz.
+                """
+                if "quiz_seen_keys" not in st.session_state or not isinstance(st.session_state.quiz_seen_keys, set):
+                    st.session_state.quiz_seen_keys = set(st.session_state.get("quiz_seen_keys", []))
+
+                wrong_queue = st.session_state.get("quiz_wrong_queue", [])
+                since_review = st.session_state.get("quiz_since_wrong_review", 0)
+
+                # Ưu tiên hỏi lại câu sai sau 5 câu thường.
+                # Nếu đã hết câu thường thì hỏi luôn câu sai còn tồn lại.
+                remaining_regular = [
+                    entry for entry in valid_for_quiz
+                    if quiz_entry_key(entry) not in st.session_state.quiz_seen_keys
+                ]
+
+                should_review_now = bool(wrong_queue) and (since_review >= 5 or not remaining_regular)
+
+                if should_review_now:
+                    review_entry = wrong_queue.pop(0)
+                    st.session_state.quiz_wrong_queue = wrong_queue
+
+                    if "quiz_wrong_keys" not in st.session_state or not isinstance(st.session_state.quiz_wrong_keys, set):
+                        st.session_state.quiz_wrong_keys = set(st.session_state.get("quiz_wrong_keys", []))
+
+                    st.session_state.quiz_wrong_keys.discard(quiz_entry_key(review_entry))
+                    st.session_state.quiz_since_wrong_review = 0
+                    st.session_state.quiz_is_review = True
+                    st.session_state.quiz_review_count = st.session_state.get("quiz_review_count", 0) + 1
+                    return review_entry
+
+                # Nếu hết câu thường và không còn câu sai thì kết thúc.
+                if not remaining_regular:
+                    st.session_state.quiz_completed = True
+                    st.session_state.quiz_q = None
+                    st.session_state.quiz_options = []
+                    return None
+
+                # Chọn một câu thường chưa hỏi trong lượt hiện tại.
+                new_entry = random.choice(remaining_regular)
+                st.session_state.quiz_seen_keys.add(quiz_entry_key(new_entry))
+                st.session_state.quiz_since_wrong_review = since_review + 1
+                st.session_state.quiz_is_review = False
+                return new_entry
+
+            def option_order_key(options):
+                return tuple(normalize_quiz_key(x) for x in options)
+
+            def shuffle_options_for_entry(options, entry):
+                """
+                Trộn đáp án và cố gắng tránh trùng vị trí cũ của chính câu đó.
+                Dùng cho:
+                - câu sai bị hỏi lại ngay
+                - câu sai được đưa vào hàng chờ ôn lại kiểu Quizlet
+                """
+                options = list(options)
+                entry_key = quiz_entry_key(entry)
+
+                if "quiz_last_option_orders" not in st.session_state:
+                    st.session_state.quiz_last_option_orders = {}
+
+                old_order = st.session_state.quiz_last_option_orders.get(entry_key)
+
+                if len(options) <= 1:
+                    return options
+
+                # Thử nhiều lần để tránh ra đúng thứ tự cũ.
+                for _ in range(20):
+                    random.shuffle(options)
+
+                    if option_order_key(options) != old_order:
+                        return options
+
+                return options
+
             def make_new_quiz_question():
-                new_entry = random.choice(valid_for_quiz)
+                new_entry = get_next_quiz_entry()
+
+                if new_entry is None:
+                    return
+
                 new_card = new_entry["card"]
-                correct_variants = answer_variants_for_card(new_card)
-                correct_variants = [x for x in correct_variants if clean_text(x)]
+                correct_variants = answer_variants_for_card_filtered(new_card, all_term_norms_for_quiz)
                 correct_option = new_entry["answer"]
+
+                # Đưa chính đáp án đúng và từng phần của nó vào danh sách đáp án đúng.
+                # Ví dụ dữ liệu đúng là "아/어도 / 지 않아도 / (으)ㄴ 것도 없이"
+                # thì chọn riêng "아/어도" vẫn được tính đúng.
+                correct_variants = unique_by_quiz_key(
+                    [x for x in correct_variants if clean_text(x)]
+                    + [correct_option]
+                    + split_answer_parts(correct_option)
+                    + answer_variants(correct_option, "")
+                )
 
                 new_wrong_pool = [
                     entry
                     for entry in valid_for_quiz
-                    if entry["card"].get("kr") != new_card.get("kr")
+                    if normalize_quiz_key(entry["card"].get("kr")) != normalize_quiz_key(new_card.get("kr"))
                 ]
 
                 wrong_answers = []
                 random.shuffle(new_wrong_pool)
 
-                current_question_norm = normalize_answer(new_card.get("kr", ""))
-                correct_norms = [normalize_answer(a) for a in correct_variants]
+                current_question_norm = normalize_quiz_key(new_card.get("kr", ""))
+                correct_norms = [normalize_quiz_key(a) for a in correct_variants]
                 wrong_norms = set(correct_norms)
 
                 for entry in new_wrong_pool:
                     wrong_text = pick_one_answer(entry["card"])
-                    wrong_norm = normalize_answer(wrong_text)
+                    wrong_norm = normalize_quiz_key(wrong_text)
 
                     if (
                         wrong_text
                         and wrong_norm
                         and wrong_norm != current_question_norm
                         and wrong_norm not in wrong_norms
+                        and not quiz_answer_matches(wrong_text, correct_variants)
                     ):
                         wrong_answers.append(wrong_text)
                         wrong_norms.add(wrong_norm)
@@ -1303,31 +1703,55 @@ try:
                         break
 
                 new_options = [correct_option] + wrong_answers
-                new_options = [x for x in new_options if normalize_answer(x) != current_question_norm]
+                new_options = [x for x in new_options if normalize_quiz_key(x) != current_question_norm]
 
                 if not new_options:
                     new_options = [correct_option]
 
-                random.shuffle(new_options)
+                new_options = shuffle_options_for_entry(new_options, new_entry)
 
                 st.session_state.quiz_q = new_card
+                st.session_state.quiz_current_entry = {
+                    "card": new_card,
+                    "answer": correct_option,
+                }
                 st.session_state.quiz_correct = correct_option
                 st.session_state.quiz_correct_variants = correct_variants
                 st.session_state.quiz_options = new_options
+
+                if "quiz_last_option_orders" not in st.session_state:
+                    st.session_state.quiz_last_option_orders = {}
+
+                st.session_state.quiz_last_option_orders[quiz_entry_key(new_entry)] = option_order_key(new_options)
+
                 st.session_state.quiz_round = st.session_state.get("quiz_round", 0) + 1
                 st.session_state.quiz_show_detail = False
                 
             def check_answer(selected_option):
-                correct_variants = st.session_state.get("quiz_correct_variants", [])
+                current_entry = st.session_state.get("quiz_current_entry")
 
-                selected_norm = normalize_answer(selected_option)
-                correct_norms = [normalize_answer(x) for x in correct_variants]
-
-                if selected_norm in correct_norms:
+                if current_quiz_answer_is_correct(selected_option):
+                    # Nếu trước đó đã sai rồi chọn lại đúng:
+                    # vẫn chuyển sang câu tiếp theo như ban đầu.
+                    # Câu từng sai vẫn nằm trong hàng chờ ôn lại sau 5 câu để nhớ lâu hơn.
                     st.session_state.quiz_last_result = "correct"
                     make_new_quiz_question()
                     st.rerun()
                 else:
+                    if current_entry:
+                        if "quiz_last_option_orders" not in st.session_state:
+                            st.session_state.quiz_last_option_orders = {}
+
+                        # Lưu vị trí đáp án vừa bị sai để lần hỏi lại sau 5 câu sẽ trộn khác vị trí cũ
+                        st.session_state.quiz_last_option_orders[quiz_entry_key(current_entry)] = option_order_key(
+                            st.session_state.get("quiz_options", [])
+                        )
+
+                        # Đưa câu sai vào hàng chờ ôn lại sau 5 câu thường
+                        add_wrong_review(current_entry)
+
+                    # Trả lời sai -> hiện đáp án và GIỮ NGUYÊN câu hiện tại,
+                    # không tự nhảy sang câu tiếp theo.
                     st.session_state.quiz_last_result = "wrong"
                     st.rerun()
 
@@ -1336,20 +1760,49 @@ try:
                 st.session_state.quiz_last_result = None
 
             if st.button("Câu mới", key="quiz_new_btn", use_container_width=True):
+                if st.session_state.get("quiz_completed"):
+                    reset_quiz()
                 make_new_quiz_question()
                 st.session_state.quiz_last_result = None
                 st.rerun()
 
+            if st.session_state.get("quiz_is_review"):
+                st.warning("🔁 Câu ôn lại: câu này trước đó bạn đã trả lời sai, nên app hỏi lại thêm 1 lần để nhớ tốt hơn.")
+
+            wrong_waiting = len(st.session_state.get("quiz_wrong_queue", []))
+            if wrong_waiting > 0:
+                st.caption(f"📌 Đang có {wrong_waiting} câu sai trong hàng chờ ôn lại.")
+
             q = st.session_state.quiz_q
             options = st.session_state.quiz_options
-            quiz_round = st.session_state.get("quiz_round", 0)
             total_quiz = len(valid_for_quiz)
+            regular_done = len(st.session_state.get("quiz_seen_keys", set()))
+            review_done = st.session_state.get("quiz_review_count", 0)
+
+            if st.session_state.get("quiz_completed") or q is None or not options:
+                st.success(
+                    f"🎉 Hoàn thành lượt quiz: đã hỏi đủ {regular_done}/{total_quiz} câu thường"
+                    + (f" và {review_done} câu ôn lại." if review_done else ".")
+                )
+
+                if st.button("🔄 Làm lại từ đầu", key="quiz_restart_btn", use_container_width=True):
+                    reset_quiz()
+                    st.rerun()
+
+                st.stop()
+
             quiz_star_label = "⭐" if q.get("starred") else "☆"
+            quiz_round = st.session_state.get("quiz_round", 0)
 
             header_col, star_col = st.columns([11, 1])
             with header_col:
+                if st.session_state.get("quiz_is_review"):
+                    header_text = f"🔁 Ôn lại {review_done} | Câu thường {regular_done}/{total_quiz}"
+                else:
+                    header_text = f"Câu {regular_done} / {total_quiz}"
+
                 st.markdown(
-                    f"<div class='quiz-help'>Câu {quiz_round} / {total_quiz}</div>",
+                    f"<div class='quiz-help'>{header_text}</div>",
                     unsafe_allow_html=True
                 )
 
@@ -1389,11 +1842,17 @@ try:
             speak_button(q.get("kr", ""))
 
             if st.session_state.get("quiz_last_result") == "correct":
-                st.success("Đúng rồi! Đã tự chuyển sang câu tiếp theo ✅")
+                st.success("Đúng rồi! Đã chuyển sang câu tiếp theo ✅")
+            elif st.session_state.get("quiz_last_result") == "wrong_saved":
+                st.warning("Sai. Câu này đã được đưa vào hàng chờ và sẽ hỏi lại sau 5 câu.")
             elif st.session_state.get("quiz_last_result") == "wrong":
+                correct_show = st.session_state.get("quiz_correct_variants", [])
+                if not correct_show:
+                    correct_show = [st.session_state.get("quiz_correct", "")]
+
                 st.error(
                     "Sai. Các đáp án đúng là: "
-                    + " / ".join(st.session_state.get("quiz_correct_variants", []))
+                    + " / ".join([x for x in correct_show if clean_text(x)])
                 )
 
             answer_cols = st.columns(2)
