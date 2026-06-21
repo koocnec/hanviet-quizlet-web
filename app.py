@@ -947,16 +947,20 @@ def make_quiz_button(label, key, shortcut):
     return st.button(label, **kwargs)
 
 
-def excel_quiz_reset(clear_wrong=True):
+def excel_quiz_reset(clear_wrong=True, clear_attempts=True):
     st.session_state.excel_quiz_idx = 0
     st.session_state.excel_quiz_checked = False
     st.session_state.excel_quiz_selected = None
     st.session_state.excel_quiz_question_order = []
     st.session_state.excel_quiz_order_signature = ""
+    st.session_state.excel_quiz_history_saved = False
 
     if clear_wrong:
         st.session_state.excel_quiz_results = {}
         st.session_state.excel_quiz_wrong_indices = []
+
+    if clear_attempts:
+        st.session_state.excel_quiz_attempt_stats = {}
 
     st.session_state.excel_quiz_review_wrong_only = False
 
@@ -1304,6 +1308,96 @@ def excel_quiz_real_index():
     return st.session_state.excel_quiz_idx
 
 
+def excel_quiz_star_storage_key(source_name: str, sheet_name: str):
+    return "excel_quiz_starred|" + normalize_answer(source_name) + "|" + normalize_answer(sheet_name)
+
+
+def excel_quiz_load_starred(storage_key: str):
+    state = load_persistent_state()
+    return set(state.get(storage_key, []))
+
+
+def excel_quiz_save_starred(storage_key: str):
+    if not storage_key:
+        return
+
+    state = load_persistent_state()
+    state[storage_key] = sorted(list(st.session_state.get("excel_quiz_starred_keys", set())))
+    save_persistent_state(state)
+
+
+def excel_quiz_update_attempt(row, selected_value, right_label, right_text, ok, row_key_value):
+    stats = st.session_state.get("excel_quiz_attempt_stats", {})
+
+    item = stats.get(row_key_value, {
+        "key": row_key_value,
+        "Trang": excel_quiz_clean(row.get("Trang", "")),
+        "Số câu": excel_quiz_clean(row.get("Số câu", "")),
+        "Dạng": excel_quiz_clean(row.get("Dạng", "")),
+        "Câu hỏi": excel_quiz_clean(row.get("Câu hỏi", "")),
+        "Đáp án đúng": f"{right_label} {right_text}".strip(),
+        "Dịch nghĩa": excel_quiz_clean(row.get("Dịch nghĩa", "")),
+        "Giải thích ngắn": excel_quiz_clean(row.get("Giải thích ngắn", "")),
+        "Số lần sai": 0,
+        "Số lần đúng": 0,
+        "Tổng lần trả lời": 0,
+        "Bạn chọn gần nhất": "",
+        "Kết quả gần nhất": "",
+    })
+
+    item["Tổng lần trả lời"] = int(item.get("Tổng lần trả lời", 0)) + 1
+    item["Bạn chọn gần nhất"] = selected_value
+    item["Kết quả gần nhất"] = "Đúng" if ok else "Sai"
+
+    if ok:
+        item["Số lần đúng"] = int(item.get("Số lần đúng", 0)) + 1
+    else:
+        item["Số lần sai"] = int(item.get("Số lần sai", 0)) + 1
+
+    stats[row_key_value] = item
+    st.session_state.excel_quiz_attempt_stats = stats
+
+
+def excel_quiz_summary_dataframe():
+    stats = st.session_state.get("excel_quiz_attempt_stats", {})
+    rows = []
+
+    starred_keys = st.session_state.get("excel_quiz_starred_keys", set())
+
+    for item in stats.values():
+        if int(item.get("Tổng lần trả lời", 0) or 0) <= 0:
+            continue
+
+        row = dict(item)
+        row["Đã gắn sao"] = "⭐" if row.get("key") in starred_keys else ""
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    rows.sort(key=lambda x: (-int(x.get("Số lần sai", 0) or 0), x.get("Trang", ""), x.get("Số câu", "")))
+    df = pd.DataFrame(rows)
+
+    preferred_cols = [
+        "Đã gắn sao",
+        "Trang",
+        "Số câu",
+        "Dạng",
+        "Câu hỏi",
+        "Đáp án đúng",
+        "Bạn chọn gần nhất",
+        "Số lần sai",
+        "Số lần đúng",
+        "Tổng lần trả lời",
+        "Kết quả gần nhất",
+        "Dịch nghĩa",
+        "Giải thích ngắn",
+        "key",
+    ]
+
+    return df[[c for c in preferred_cols if c in df.columns]]
+
+
 def render_excel_quiz_tab():
     st.subheader("📘 Quiz từ Google Sheet")
     st.caption(
@@ -1418,6 +1512,12 @@ def render_excel_quiz_tab():
         st.error("File không có câu hỏi hợp lệ.")
         return
 
+    star_storage_key = excel_quiz_star_storage_key(source_name, sheet_name)
+
+    if st.session_state.get("excel_quiz_starred_storage_key") != star_storage_key:
+        st.session_state.excel_quiz_starred_storage_key = star_storage_key
+        st.session_state.excel_quiz_starred_keys = excel_quiz_load_starred(star_storage_key)
+
     def row_key(row):
         return "|".join([
             excel_quiz_clean(row.get("Trang", "")),
@@ -1501,6 +1601,12 @@ def render_excel_quiz_tab():
         filter_col1, filter_col2 = st.columns(2)
 
         with filter_col1:
+            excel_only_starred = st.checkbox(
+                "⭐ Chỉ học câu đánh dấu sao",
+                value=st.session_state.get("excel_quiz_only_starred", False),
+                key="excel_quiz_only_starred"
+            )
+
             excel_only_unmastered = st.checkbox(
                 "🎓 Chỉ học câu chưa thuộc",
                 value=st.session_state.get("excel_quiz_only_unmastered", False),
@@ -1510,7 +1616,9 @@ def render_excel_quiz_tab():
 
         with filter_col2:
             mastered_count = len(st.session_state.get("excel_quiz_mastered_keys", set()))
+            starred_count = len(st.session_state.get("excel_quiz_starred_keys", set()))
             st.metric("Đã thuộc", mastered_count)
+            st.metric("Đã gắn sao", starred_count)
 
         st.markdown("##### Thứ tự và hành vi")
         behavior_col1, behavior_col2 = st.columns(2)
@@ -1577,9 +1685,19 @@ def render_excel_quiz_tab():
         st.info("Bạn đang bật cả 2 loại câu hỏi. App sẽ ưu tiên chế độ trắc nghiệm 4 đáp án.")
 
     # =========================
-    # ÁP DỤNG LỌC CHƯA THUỘC
+    # ÁP DỤNG LỌC DẤU SAO / CHƯA THUỘC
     # =========================
     quiz_base_df = selected_base_df.copy()
+
+    if excel_only_starred:
+        starred_keys = st.session_state.get("excel_quiz_starred_keys", set())
+        quiz_base_df = quiz_base_df[
+            quiz_base_df.apply(lambda r: row_key(r) in starred_keys, axis=1)
+        ].reset_index(drop=True)
+
+        if quiz_base_df.empty:
+            st.warning("Không có câu nào được gắn sao trong phạm vi trang đang chọn.")
+            return
 
     if excel_only_unmastered:
         mastered_keys = st.session_state.get("excel_quiz_mastered_keys", set())
@@ -1597,7 +1715,7 @@ def render_excel_quiz_tab():
 
     data_key = (
         f"{source_name}|{sheet_name}|{','.join(selected_pages_clean)}|"
-        f"{len(quiz_base_df)}|{use_api_format}|{excel_only_unmastered}|{excel_in_order}|"
+        f"{len(quiz_base_df)}|{use_api_format}|{excel_only_starred}|{excel_only_unmastered}|{excel_in_order}|"
         f"{excel_shuffle_options}|{use_fill_blank}|{st.session_state.get('excel_quiz_settings_version', 0)}|"
         f"{'|'.join([c for c in quiz_base_df.columns if not str(c).startswith('__')])}"
     )
@@ -1634,7 +1752,7 @@ def render_excel_quiz_tab():
         f"Đang học: {selected_page_label} | Số câu học: {len(quiz_base_df)}"
     )
 
-    control_col1, control_col2, control_col3, control_col4 = st.columns(4)
+    control_col1, control_col2, control_col3, control_col4, control_col5 = st.columns(5)
 
     with control_col1:
         if st.button("🔄 Làm lại lượt này", key="excel_quiz_restart", use_container_width=True):
@@ -1653,11 +1771,20 @@ def render_excel_quiz_tab():
                 st.warning("Hiện chưa có câu sai nào.")
 
     with control_col3:
+        if st.button("⭐ Học câu sao", key="excel_quiz_study_starred", use_container_width=True):
+            if st.session_state.get("excel_quiz_starred_keys"):
+                st.session_state.excel_quiz_only_starred = True
+                excel_quiz_reset(clear_wrong=True)
+                st.rerun()
+            else:
+                st.warning("Chưa có câu nào được gắn sao.")
+
+    with control_col4:
         if st.button("📋 Hiện/ẩn dữ liệu", key="excel_quiz_toggle_data", use_container_width=True):
             st.session_state.excel_quiz_show_data = not st.session_state.excel_quiz_show_data
             st.rerun()
 
-    with control_col4:
+    with control_col5:
         if st.button("↩️ Thoát học lại sai", key="excel_quiz_exit_wrong", use_container_width=True):
             st.session_state.excel_quiz_review_wrong_only = False
             st.session_state.excel_quiz_idx = 0
@@ -1690,21 +1817,52 @@ def render_excel_quiz_tab():
         total_answered = len(st.session_state.excel_quiz_results)
         correct_count = sum(1 for v in st.session_state.excel_quiz_results.values() if v == "correct")
         wrong_count = len(st.session_state.excel_quiz_wrong_indices)
+        summary_df = excel_quiz_summary_dataframe()
+        wrong_summary_df = summary_df[summary_df["Số lần sai"] > 0].copy() if not summary_df.empty and "Số lần sai" in summary_df.columns else pd.DataFrame()
 
-        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
         metric_col1.metric("Đã làm", total_answered)
         metric_col2.metric("Đúng", correct_count)
         metric_col3.metric("Sai", wrong_count)
+        metric_col4.metric("Câu sai khác nhau", len(wrong_summary_df))
 
-        if st.session_state.excel_quiz_wrong_indices:
-            valid_wrong_indices = [
-                i for i in st.session_state.excel_quiz_wrong_indices
-                if isinstance(i, int) and 0 <= i < len(selected_base_df)
-            ]
-            wrong_df = selected_base_df.iloc[valid_wrong_indices].drop(columns=["__source_index"], errors="ignore").reset_index(drop=True)
+        if not wrong_summary_df.empty:
+            st.markdown("### 🧾 Tổng hợp lỗi")
+            st.dataframe(wrong_summary_df.drop(columns=["key"], errors="ignore"), use_container_width=True)
 
-            st.markdown("### Danh sách câu sai")
-            st.dataframe(wrong_df, use_container_width=True)
+            csv_data = wrong_summary_df.drop(columns=["key"], errors="ignore").to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "⬇️ Tải tổng hợp lỗi CSV",
+                csv_data,
+                file_name="tong_hop_loi_quiz_google_sheet.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+            retry_col1, retry_col2 = st.columns(2)
+
+            with retry_col1:
+                if st.button("🔁 Học lại toàn bộ câu sai", key="excel_quiz_retry_wrong_summary", use_container_width=True):
+                    st.session_state.excel_quiz_review_wrong_only = True
+                    st.session_state.excel_quiz_idx = 0
+                    st.session_state.excel_quiz_checked = False
+                    st.session_state.excel_quiz_selected = None
+                    st.rerun()
+
+            with retry_col2:
+                if st.button("⭐ Gắn sao toàn bộ câu sai", key="excel_quiz_star_all_wrong_summary", use_container_width=True):
+                    starred = st.session_state.get("excel_quiz_starred_keys", set())
+                    starred.update(set(wrong_summary_df["key"].tolist()))
+                    st.session_state.excel_quiz_starred_keys = starred
+                    excel_quiz_save_starred(st.session_state.get("excel_quiz_starred_storage_key", ""))
+                    st.success("Đã gắn sao toàn bộ câu sai.")
+                    st.rerun()
+        else:
+            st.info("Không có lỗi nào trong lượt này.")
+
+        if not summary_df.empty:
+            with st.expander("📊 Xem toàn bộ lịch sử trả lời trong lượt này"):
+                st.dataframe(summary_df.drop(columns=["key"], errors="ignore"), use_container_width=True)
 
         return
 
@@ -1728,6 +1886,35 @@ def render_excel_quiz_tab():
 
     if meta:
         st.caption(" | ".join(meta))
+
+    current_row_key_for_star = row_key(row)
+    current_is_starred = current_row_key_for_star in st.session_state.get("excel_quiz_starred_keys", set())
+
+    # Chỉ hiển thị icon ngôi sao, không hiện chữ dài.
+    star_label = "⭐" if current_is_starred else "☆"
+
+    star_col1, star_col2 = st.columns([0.35, 6])
+
+    with star_col1:
+        if st.button(
+            star_label,
+            key=f"excel_quiz_star_btn_{current_row_key_for_star}_{st.session_state.excel_quiz_idx}",
+            help="Gắn / bỏ dấu sao câu này",
+            use_container_width=False
+        ):
+            starred = st.session_state.get("excel_quiz_starred_keys", set())
+
+            if current_is_starred:
+                starred.discard(current_row_key_for_star)
+            else:
+                starred.add(current_row_key_for_star)
+
+            st.session_state.excel_quiz_starred_keys = starred
+            excel_quiz_save_starred(st.session_state.get("excel_quiz_starred_storage_key", ""))
+            st.rerun()
+
+    with star_col2:
+        st.caption(f"⭐ Tổng câu đã gắn sao: {len(st.session_state.get('excel_quiz_starred_keys', set()))}")
 
     question_text = excel_quiz_clean(row.get("Câu hỏi", ""))
     question_display = excel_quiz_clean(row.get("Câu hỏi hiển thị", ""))
@@ -1820,8 +2007,19 @@ def render_excel_quiz_tab():
             st.session_state.excel_quiz_selected = selected
 
         current_row_key = row_key(row)
+        is_ok = selected == right_label
+        selected_text_for_summary = st.session_state.excel_quiz_selected if selected == "__wrong_fill_blank__" else selected
 
-        if selected == right_label:
+        excel_quiz_update_attempt(
+            row=row,
+            selected_value=selected_text_for_summary,
+            right_label=right_label,
+            right_text=right_text,
+            ok=is_ok,
+            row_key_value=current_row_key,
+        )
+
+        if is_ok:
             st.session_state.excel_quiz_results[real_idx] = "correct"
             st.session_state.excel_quiz_mastered_keys.add(current_row_key)
 
@@ -1870,6 +2068,13 @@ def render_excel_quiz_tab():
     st.caption(
         f"Đã làm: {total_answered} | Đúng: {correct_count} | Sai: {wrong_count} | Đã thuộc: {mastered_count}"
     )
+
+    summary_df_live = excel_quiz_summary_dataframe()
+    if not summary_df_live.empty and "Số lần sai" in summary_df_live.columns:
+        wrong_live = summary_df_live[summary_df_live["Số lần sai"] > 0].copy()
+        if not wrong_live.empty:
+            with st.expander(f"🧾 Tổng hợp lỗi hiện tại ({len(wrong_live)} câu)"):
+                st.dataframe(wrong_live.drop(columns=["key"], errors="ignore"), use_container_width=True)
 
 
 for k, v in {
@@ -1937,6 +2142,13 @@ for k, v in {
     "excel_quiz_google_url": DEFAULT_EXCEL_QUIZ_GOOGLE_SHEET_URL,
     "excel_quiz_use_google_api_format": False,
     "excel_quiz_google_api_key": load_saved_google_api_key(),
+
+    # Dấu sao + tổng hợp lỗi cho tab Quiz từ Google Sheet
+    "excel_quiz_starred_keys": set(),
+    "excel_quiz_starred_storage_key": "",
+    "excel_quiz_only_starred": False,
+    "excel_quiz_attempt_stats": {},
+    "excel_quiz_history_saved": False,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
