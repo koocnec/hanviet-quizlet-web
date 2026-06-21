@@ -711,29 +711,23 @@ def quiz_entries_filtered(cards_subset, all_cards):
 @st.cache_data(show_spinner=False)
 def cached_quiz_entry_count(subset_rows, all_rows):
     """
-    Đếm số quiz từ dữ liệu bất biến của thẻ và cache kết quả.
+    Đếm số thẻ có thể tạo quiz và cache kết quả.
 
     Streamlit chạy lại toàn bộ file sau mỗi lần bấm đáp án. Với sheet lớn,
-    quiz_entries_filtered phải so sánh hàng nghìn đáp án với hàng nghìn
-    thuật ngữ nên rất chậm nếu tính lại ở mỗi câu.
+    không nên dựng lại toàn bộ danh sách câu hỏi chỉ để hiển thị thống kê.
+    Theo mặc định Hàn -> Việt, mỗi thẻ hợp lệ tương ứng một câu.
     """
-    subset_cards = [
-        {
-            "kr": row[0],
-            "vi": row[1],
-            "synonyms": row[2],
-        }
-        for row in subset_rows
-    ]
-    all_cards = [
-        {
-            "kr": row[0],
-            "vi": row[1],
-            "synonyms": row[2],
-        }
-        for row in all_rows
-    ]
-    return len(quiz_entries_filtered(subset_cards, all_cards))
+    count = 0
+
+    for kr, vi, synonyms in subset_rows:
+        has_question = bool(clean_text(kr))
+        has_primary_answer = bool(clean_text(vi)) and clean_text(vi) != "Chưa có nghĩa"
+        has_fallback_answer = bool(split_answer_parts(synonyms))
+
+        if has_question and (has_primary_answer or has_fallback_answer):
+            count += 1
+
+    return count
 
 
 def quiz_count_rows(cards):
@@ -1721,7 +1715,7 @@ try:
                     st.rerun()
 
         quiz_settings_signature = (
-            "quiz_answers_v3",
+            "quiz_answers_v5",
             quiz_kr_to_vi,
             quiz_vi_to_kr,
             quiz_synonym_mode,
@@ -1748,6 +1742,7 @@ try:
         all_term_norms_for_quiz = build_all_term_norms(cards_all)
         valid_for_quiz = []
         seen_quiz_entries = set()
+        seen_synonym_answer_keys = set()
 
         def append_quiz_entry(card, question, answer, correct_variants, direction):
             question = clean_text(question)
@@ -1799,8 +1794,18 @@ try:
                     primary_vi_answers = list(synonym_answers)
 
                 accepted_vi = list(primary_vi_answers)
-                for answer in primary_vi_answers:
-                    append_quiz_entry(source_card, kr_text, answer, accepted_vi, "kr_to_vi")
+                if primary_vi_answers:
+                    # Mỗi thẻ chỉ tạo một câu Hàn -> Việt.
+                    # Nếu thẻ có nhiều nghĩa trên nhiều dòng, nghĩa đầu tiên
+                    # được hiển thị trong lựa chọn; các nghĩa còn lại vẫn
+                    # được chấp nhận là đáp án đúng.
+                    append_quiz_entry(
+                        source_card,
+                        kr_text,
+                        primary_vi_answers[0],
+                        accepted_vi,
+                        "kr_to_vi"
+                    )
 
             if quiz_vi_to_kr:
                 vi_question = clean_text(source_card.get("vi", ""))
@@ -1809,8 +1814,27 @@ try:
                     append_quiz_entry(source_card, vi_question, kr_text, accepted_kr, "vi_to_kr")
 
             if quiz_synonym_mode:
-                for answer in synonym_answers:
-                    append_quiz_entry(source_card, kr_text, answer, synonym_answers, "synonym")
+                filtered_synonym_answers = answer_variants_for_card_filtered(
+                    source_card,
+                    all_term_norms_for_quiz
+                )
+
+                for answer in filtered_synonym_answers:
+                    answer_key = normalize_quiz_key(answer)
+
+                    # Chế độ từ đồng nghĩa tính mỗi đáp án duy nhất một lần
+                    # trong cả bộ, đồng thời loại đáp án trùng với cột câu hỏi.
+                    if not answer_key or answer_key in seen_synonym_answer_keys:
+                        continue
+
+                    seen_synonym_answer_keys.add(answer_key)
+                    append_quiz_entry(
+                        source_card,
+                        kr_text,
+                        answer,
+                        filtered_synonym_answers,
+                        "synonym"
+                    )
 
         if only_starred:
             st.info(f"Đang quiz {len(quiz_source)} thẻ đã gắn sao trong Bộ {st.session_state.folder_no:03d}.")
