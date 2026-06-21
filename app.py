@@ -9,9 +9,10 @@ import difflib
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -55,6 +56,8 @@ SAVED_SHEET_COLUMNS = {
         "synonym": "G",
     },
 }
+
+DEFAULT_EXCEL_QUIZ_GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=421247814#gid=421247814"
 
 STATE_FILE = APP_DIR / "app_star_state.json"
 
@@ -911,6 +914,904 @@ def make_quiz_button(label, key, shortcut):
     return st.button(label, **kwargs)
 
 
+def excel_quiz_reset(clear_wrong=True):
+    st.session_state.excel_quiz_idx = 0
+    st.session_state.excel_quiz_checked = False
+    st.session_state.excel_quiz_selected = None
+    st.session_state.excel_quiz_question_order = []
+    st.session_state.excel_quiz_order_signature = ""
+
+    if clear_wrong:
+        st.session_state.excel_quiz_results = {}
+        st.session_state.excel_quiz_wrong_indices = []
+
+    st.session_state.excel_quiz_review_wrong_only = False
+
+
+def excel_quiz_clean(x):
+    if pd.isna(x):
+        return ""
+    return str(x).strip()
+
+
+def excel_quiz_load_google_sheet(google_url: str):
+    """
+    Đọc dữ liệu Quiz từ Google Sheets.
+
+    Yêu cầu:
+    - Link Google Sheet phải được share: Anyone with the link -> Viewer.
+    - Link nên có gid ở cuối để app đọc đúng sheet chứa câu hỏi quiz.
+    """
+    google_url = clean_text(google_url)
+
+    if not google_url:
+        return None, "", ""
+
+    df = read_google_sheet(google_url, "quiz_excel").fillna("")
+    df.columns = [str(c).strip() for c in df.columns]
+
+    gid_match = re.search(r"gid=([0-9]+)", google_url)
+    sheet_name = f"gid={gid_match.group(1)}" if gid_match else "quiz_excel"
+
+    return df, sheet_name, google_url
+
+def google_sheet_ids_from_url(google_url: str):
+    google_url = clean_text(google_url)
+
+    spreadsheet_match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", google_url)
+    gid_match = re.search(r"gid=([0-9]+)", google_url)
+
+    if not spreadsheet_match:
+        raise ValueError("Link Google Sheet không đúng. Không tìm thấy spreadsheet id.")
+
+    spreadsheet_id = spreadsheet_match.group(1)
+    gid = int(gid_match.group(1)) if gid_match else None
+
+    return spreadsheet_id, gid
+
+
+def excel_quiz_text_format_to_html(text: str, fmt: dict):
+    text = html.escape(text or "")
+
+    if not text:
+        return ""
+
+    if fmt.get("underline"):
+        text = f"<u>{text}</u>"
+
+    if fmt.get("bold"):
+        text = f"<b>{text}</b>"
+
+    if fmt.get("italic"):
+        text = f"<i>{text}</i>"
+
+    color_style = fmt.get("foregroundColorStyle", {})
+    rgb = color_style.get("rgbColor") or fmt.get("foregroundColor", {})
+
+    if rgb:
+        r = int(float(rgb.get("red", 0)) * 255)
+        g = int(float(rgb.get("green", 0)) * 255)
+        b = int(float(rgb.get("blue", 0)) * 255)
+
+        if r or g or b:
+            text = f"<span style='color: rgb({r}, {g}, {b})'>{text}</span>"
+
+    return text
+
+
+def excel_quiz_cell_to_html(cell: dict):
+    """
+    Chuyển ô Google Sheet có định dạng rich text thành HTML đơn giản.
+    Hỗ trợ: gạch chân, in đậm, in nghiêng, màu chữ.
+    """
+    plain = cell.get("formattedValue", "")
+
+    if not plain:
+        return ""
+
+    runs = cell.get("textFormatRuns") or []
+
+    if not runs:
+        cell_fmt = cell.get("effectiveFormat", {}).get("textFormat", {})
+
+        if cell_fmt.get("underline") or cell_fmt.get("bold") or cell_fmt.get("italic"):
+            return excel_quiz_text_format_to_html(plain, cell_fmt)
+
+        return html.escape(plain)
+
+    runs = sorted(runs, key=lambda r: int(r.get("startIndex", 0) or 0))
+
+    if int(runs[0].get("startIndex", 0) or 0) != 0:
+        runs = [{"startIndex": 0, "format": {}}] + runs
+
+    parts = []
+
+    for i, run in enumerate(runs):
+        start = int(run.get("startIndex", 0) or 0)
+        end = int(runs[i + 1].get("startIndex", len(plain)) or len(plain)) if i + 1 < len(runs) else len(plain)
+
+        if start >= len(plain):
+            continue
+
+        segment = plain[start:end]
+
+        if not segment:
+            continue
+
+        fmt = run.get("format", {}) or {}
+        parts.append(excel_quiz_text_format_to_html(segment, fmt))
+
+    return "".join(parts)
+
+
+def excel_quiz_google_api_metadata_url(spreadsheet_id: str, api_key: str):
+    """
+    Lấy danh sách sheet nhẹ trước để biết gid tương ứng với tên sheet nào.
+    Không tải grid data ở bước này nên nhanh hơn rất nhiều.
+    """
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+    fields = "sheets(properties(sheetId,title))"
+
+    return f"{base}?fields={quote(fields, safe='(),')}&key={api_key}"
+
+
+def excel_quiz_google_api_url(spreadsheet_id: str, api_key: str, sheet_title: str):
+    """
+    Chỉ tải dữ liệu của đúng sheet đang chọn, không tải toàn bộ spreadsheet.
+    Đây là phần sửa lỗi timeout.
+    """
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+
+    # Giới hạn vùng đọc tới A:M vì file quiz đang dùng 13 cột:
+    # Trang, Số câu, Dạng, Câu hỏi, Dịch nghĩa, ①, ②, ③, ④, Đáp án, Đáp án đúng, Giải thích ngắn, Tất cả đáp án
+    safe_title = str(sheet_title).replace("'", "''")
+    range_a1 = f"'{safe_title}'!A:M"
+
+    fields = (
+        "sheets("
+        "properties(sheetId,title),"
+        "data(rowData(values(formattedValue,textFormatRuns,effectiveFormat(textFormat))))"
+        ")"
+    )
+
+    query = urlencode({
+        "includeGridData": "true",
+        "ranges": range_a1,
+        "fields": fields,
+        "key": api_key,
+    })
+
+    return f"{base}?{query}"
+
+
+def excel_quiz_load_google_sheet_with_format(google_url: str, api_key: str):
+    """
+    Đọc Google Sheet bằng Google Sheets API để giữ định dạng gạch chân/in đậm.
+    Kết quả vẫn giữ cột 'Câu hỏi' sạch và tự thêm cột 'Câu hỏi hiển thị' có HTML.
+    """
+    google_url = clean_text(google_url)
+    api_key = clean_text(api_key)
+
+    if not google_url:
+        return None, "", ""
+
+    if not api_key:
+        raise ValueError("Bạn cần nhập Google API key để đọc định dạng gạch chân bằng Google Sheets API.")
+
+    spreadsheet_id, gid = google_sheet_ids_from_url(google_url)
+
+    # Bước 1: lấy metadata nhẹ để tìm tên sheet theo gid
+    metadata_url = excel_quiz_google_api_metadata_url(spreadsheet_id, api_key)
+    meta_response = requests.get(metadata_url, timeout=30)
+
+    if meta_response.status_code != 200:
+        raise RuntimeError(f"Google Sheets API metadata lỗi {meta_response.status_code}: {meta_response.text[:500]}")
+
+    metadata = meta_response.json()
+    meta_sheets = metadata.get("sheets", [])
+
+    if not meta_sheets:
+        raise RuntimeError("Google Sheets API không trả về danh sách sheet.")
+
+    selected_props = None
+
+    if gid is not None:
+        for sheet in meta_sheets:
+            props = sheet.get("properties", {})
+            if int(props.get("sheetId", -1)) == gid:
+                selected_props = props
+                break
+
+    if selected_props is None:
+        selected_props = meta_sheets[0].get("properties", {})
+
+    sheet_title = selected_props.get("title", "quiz_excel")
+    sheet_id = selected_props.get("sheetId", "")
+
+    # Bước 2: chỉ lấy gridData của đúng sheet đó, vùng A:M
+    api_url = excel_quiz_google_api_url(spreadsheet_id, api_key, sheet_title)
+    response = requests.get(api_url, timeout=90)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Google Sheets API dữ liệu lỗi {response.status_code}: {response.text[:500]}")
+
+    data = response.json()
+    sheets = data.get("sheets", [])
+
+    if not sheets:
+        raise RuntimeError("Google Sheets API không trả về dữ liệu sheet.")
+
+    selected_sheet = sheets[0]
+
+    grid_data = selected_sheet.get("data", [])
+
+    if not grid_data:
+        raise RuntimeError("Sheet không có grid data.")
+
+    rows = grid_data[0].get("rowData", [])
+
+    if not rows:
+        raise RuntimeError("Sheet không có dòng dữ liệu.")
+
+    max_cols = 0
+
+    for row in rows:
+        max_cols = max(max_cols, len(row.get("values", [])))
+
+    table = []
+    html_table = []
+
+    for row in rows:
+        values = row.get("values", [])
+        plain_row = []
+        html_row = []
+
+        for col_i in range(max_cols):
+            cell = values[col_i] if col_i < len(values) else {}
+            plain_row.append(excel_quiz_clean(cell.get("formattedValue", "")))
+            html_row.append(excel_quiz_cell_to_html(cell))
+
+        table.append(plain_row)
+        html_table.append(html_row)
+
+    while table and not any(excel_quiz_clean(x) for x in table[0]):
+        table.pop(0)
+        html_table.pop(0)
+
+    if not table:
+        raise RuntimeError("Sheet không có dữ liệu chữ.")
+
+    headers = [excel_quiz_clean(x) for x in table[0]]
+    headers = [h if h else f"Column_{i + 1}" for i, h in enumerate(headers)]
+
+    data_rows = table[1:]
+    html_rows = html_table[1:]
+
+    df = pd.DataFrame(data_rows, columns=headers).fillna("")
+
+    if "Câu hỏi" in df.columns:
+        question_col_idx = headers.index("Câu hỏi")
+        display_values = []
+
+        for plain_row, html_row in zip(data_rows, html_rows):
+            plain_question = plain_row[question_col_idx] if question_col_idx < len(plain_row) else ""
+            html_question = html_row[question_col_idx] if question_col_idx < len(html_row) else ""
+
+            if html_question and html_question != html.escape(plain_question):
+                display_values.append(html_question)
+            else:
+                display_values.append("")
+
+        df["Câu hỏi hiển thị"] = display_values
+
+    df.columns = [str(c).strip() for c in df.columns]
+
+    sheet_name = f"{sheet_title} (gid={sheet_id})"
+
+    return df, sheet_name, google_url
+
+
+
+
+def excel_quiz_get_options(row):
+    return [
+        ("①", excel_quiz_clean(row.get("①", ""))),
+        ("②", excel_quiz_clean(row.get("②", ""))),
+        ("③", excel_quiz_clean(row.get("③", ""))),
+        ("④", excel_quiz_clean(row.get("④", ""))),
+    ]
+
+
+def excel_quiz_correct_label(row):
+    """
+    Lấy nhãn đáp án đúng từ cột 'Đáp án'.
+    Hỗ trợ nhiều kiểu:
+    - ① ② ③ ④
+    - 1 2 3 4
+    - A B C D
+    - Nếu cột Đáp án không có, thử dò theo cột 'Đáp án đúng'
+    """
+    ans = excel_quiz_clean(row.get("Đáp án", ""))
+
+    mapping = {
+        "1": "①", "2": "②", "3": "③", "4": "④",
+        "A": "①", "B": "②", "C": "③", "D": "④",
+        "①": "①", "②": "②", "③": "③", "④": "④",
+        "1.": "①", "2.": "②", "3.": "③", "4.": "④",
+    }
+
+    if ans.upper() in mapping:
+        return mapping[ans.upper()]
+
+    # Có trường hợp ghi "③ 축구하다가"
+    for label in ["①", "②", "③", "④"]:
+        if ans.startswith(label):
+            return label
+
+    # Thử dò theo nội dung đáp án đúng
+    right_text = excel_quiz_clean(row.get("Đáp án đúng", ""))
+
+    if right_text:
+        for label, text in excel_quiz_get_options(row):
+            if normalize_quiz_key(right_text) and normalize_quiz_key(right_text) == normalize_quiz_key(text):
+                return label
+
+    return ans
+
+
+def excel_quiz_real_index():
+    if st.session_state.excel_quiz_review_wrong_only:
+        wrongs = st.session_state.excel_quiz_wrong_indices
+        if 0 <= st.session_state.excel_quiz_idx < len(wrongs):
+            return wrongs[st.session_state.excel_quiz_idx]
+    return st.session_state.excel_quiz_idx
+
+
+def render_excel_quiz_tab():
+    st.subheader("📘 Quiz từ Google Sheet")
+    st.caption(
+        "Dùng cho dữ liệu câu hỏi đã đẩy lên Google Sheets. "
+        "Có thể chọn học một trang, nhiều trang hoặc học tất cả. "
+        "Có cài đặt học tập giống tab Quiz chính: học theo thứ tự, trộn câu hỏi, tự chuyển khi đúng, chỉ học câu chưa thuộc."
+    )
+
+    st.markdown("""
+    <style>
+    div[data-testid="stVerticalBlock"]:has(#excel-quiz-answer-scope) div[data-testid="stButton"] > button {
+        min-height: 58px !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(#excel-quiz-answer-scope) div[data-testid="stButton"] > button p {
+        font-size: 32px !important;
+        font-weight: 900 !important;
+        line-height: 1.35 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### 🔗 Nguồn câu hỏi")
+    quiz_google_url = st.text_input(
+        "Link Google Sheet chứa câu hỏi quiz",
+        value=st.session_state.get("excel_quiz_google_url", DEFAULT_EXCEL_QUIZ_GOOGLE_SHEET_URL),
+        key="excel_quiz_google_url",
+        help="Dán link Google Sheet có gid của sheet chứa câu hỏi quiz."
+    )
+
+    api_col1, api_col2 = st.columns([1, 2])
+
+    with api_col1:
+        use_api_format = st.checkbox(
+            "Dùng Google Sheets API để đọc gạch chân/in đậm",
+            value=st.session_state.get("excel_quiz_use_google_api_format", False),
+            key="excel_quiz_use_google_api_format"
+        )
+
+    with api_col2:
+        api_key = st.text_input(
+            "Google API key",
+            value=st.session_state.get("excel_quiz_google_api_key", ""),
+            key="excel_quiz_google_api_key",
+            type="password",
+            help="Cần API key nếu muốn đọc định dạng gạch chân/in đậm từ Google Sheet."
+        )
+
+    reload_col1, reload_col2 = st.columns([1, 4])
+
+    with reload_col1:
+        if st.button("🔄 Tải lại sheet", key="excel_quiz_reload_google_sheet", use_container_width=True):
+            read_google_sheet.clear()
+            excel_quiz_reset(clear_wrong=True)
+            st.rerun()
+
+    with reload_col2:
+        if use_api_format:
+            st.info("Đang dùng Google Sheets API để đọc gạch chân/in đậm. Bản này chỉ tải đúng sheet hiện tại để tránh timeout.")
+        else:
+            st.info("Đang dùng chế độ CSV nhanh. Chế độ này không đọc được gạch chân/in đậm.")
+
+    try:
+        if use_api_format:
+            df, sheet_name, source_name = excel_quiz_load_google_sheet_with_format(quiz_google_url, api_key)
+        else:
+            df, sheet_name, source_name = excel_quiz_load_google_sheet(quiz_google_url)
+    except Exception as e:
+        st.error("Không đọc được Google Sheet. Hãy kiểm tra link, quyền chia sẻ và API key.")
+        st.exception(e)
+        return
+
+    if df is None:
+        st.info("Hãy dán link Google Sheet chứa dữ liệu câu hỏi quiz.")
+        return
+
+    required_cols = ["Câu hỏi", "①", "②", "③", "④", "Đáp án"]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+
+    if missing_cols:
+        st.error(f"File Excel đang thiếu cột: {missing_cols}")
+        st.write("Các cột hiện có trong file:")
+        st.write(list(df.columns))
+        return
+
+    # Chỉ lấy dòng có câu hỏi
+    df = df[df["Câu hỏi"].astype(str).str.strip() != ""].reset_index(drop=True)
+
+    if df.empty:
+        st.error("File không có câu hỏi hợp lệ.")
+        return
+
+    def row_key(row):
+        return "|".join([
+            excel_quiz_clean(row.get("Trang", "")),
+            excel_quiz_clean(row.get("Số câu", "")),
+            normalize_quiz_key(row.get("Câu hỏi", "")),
+            normalize_quiz_key(row.get("Đáp án", "")),
+        ])
+
+    # =========================
+    # LỌC THEO TRANG
+    # =========================
+    full_df = df.copy()
+
+    if "Trang" in full_df.columns:
+        page_values = [
+            excel_quiz_clean(x)
+            for x in full_df["Trang"].tolist()
+            if excel_quiz_clean(x)
+        ]
+
+        def page_sort_key(x):
+            try:
+                return (0, int(float(x)))
+            except Exception:
+                return (1, x)
+
+        real_page_options = sorted(set(page_values), key=page_sort_key)
+        page_options = ["Tất cả"] + real_page_options
+
+        current_page_filter = st.session_state.get("excel_quiz_page_filter", ["Tất cả"])
+        if isinstance(current_page_filter, str):
+            current_page_filter = [current_page_filter]
+
+        current_page_filter = [x for x in current_page_filter if x in page_options]
+
+        if not current_page_filter:
+            current_page_filter = ["Tất cả"]
+
+        selected_pages = st.multiselect(
+            "📄 Chọn trang để học",
+            page_options,
+            default=current_page_filter,
+            key="excel_quiz_page_filter",
+            help="Có thể chọn nhiều trang cùng lúc. Chọn 'Tất cả' để học toàn bộ câu hỏi."
+        )
+
+        if (not selected_pages) or ("Tất cả" in selected_pages):
+            selected_pages_clean = ["Tất cả"]
+            selected_base_df = full_df.reset_index(drop=True)
+        else:
+            selected_pages_clean = selected_pages
+            selected_set = set(selected_pages_clean)
+            selected_base_df = full_df[
+                full_df["Trang"].astype(str).map(lambda x: excel_quiz_clean(x)).isin(selected_set)
+            ].reset_index(drop=True)
+
+        selected_page_label = "Tất cả" if selected_pages_clean == ["Tất cả"] else ", ".join(selected_pages_clean)
+
+        st.caption(
+            f"Đang chọn: {selected_page_label} | "
+            f"Số câu theo trang: {len(selected_base_df)} / {len(full_df)}"
+        )
+    else:
+        selected_pages_clean = ["Tất cả"]
+        selected_page_label = "Tất cả"
+        selected_base_df = full_df.reset_index(drop=True)
+        st.warning("File Excel chưa có cột 'Trang', nên app sẽ học tất cả câu hỏi.")
+
+    if selected_base_df.empty:
+        st.warning("Các trang đang chọn không có câu hỏi hợp lệ.")
+        return
+
+    selected_base_df = selected_base_df.copy()
+    selected_base_df["__source_index"] = range(len(selected_base_df))
+
+    # =========================
+    # CÀI ĐẶT HỌC TẬP
+    # =========================
+    with st.expander("⚙️ Cài đặt học tập", expanded=False):
+        st.markdown("##### Lọc câu hỏi")
+        filter_col1, filter_col2 = st.columns(2)
+
+        with filter_col1:
+            excel_only_unmastered = st.checkbox(
+                "🎓 Chỉ học câu chưa thuộc",
+                value=st.session_state.get("excel_quiz_only_unmastered", False),
+                key="excel_quiz_only_unmastered",
+                help="Câu trả lời đúng sẽ được xem là đã thuộc trong phiên hiện tại."
+            )
+
+        with filter_col2:
+            mastered_count = len(st.session_state.get("excel_quiz_mastered_keys", set()))
+            st.metric("Đã thuộc", mastered_count)
+
+        st.markdown("##### Thứ tự và hành vi")
+        behavior_col1, behavior_col2 = st.columns(2)
+
+        with behavior_col1:
+            excel_in_order = st.checkbox(
+                "Học theo thứ tự (không xáo trộn)",
+                value=st.session_state.get("excel_quiz_in_order", True),
+                key="excel_quiz_in_order"
+            )
+
+            excel_shuffle_options = st.checkbox(
+                "Trộn vị trí đáp án",
+                value=st.session_state.get("excel_quiz_shuffle_options", False),
+                key="excel_quiz_shuffle_options",
+                help="Chỉ đổi vị trí hiển thị đáp án, không đổi đáp án đúng."
+            )
+
+        with behavior_col2:
+            excel_auto_continue = st.checkbox(
+                "Tự động tiếp tục khi trả lời đúng",
+                value=st.session_state.get("excel_quiz_auto_continue", False),
+                key="excel_quiz_auto_continue"
+            )
+
+        st.markdown("##### Loại câu hỏi")
+        type_col1, type_col2 = st.columns(2)
+
+        with type_col1:
+            excel_fill_blank = st.checkbox(
+                "Điền từ (Fill in the blank)",
+                value=st.session_state.get("excel_quiz_fill_blank", False),
+                key="excel_quiz_fill_blank"
+            )
+
+        with type_col2:
+            excel_multiple_choice = st.checkbox(
+                "Trắc nghiệm 4 đáp án",
+                value=st.session_state.get("excel_quiz_multiple_choice", True),
+                key="excel_quiz_multiple_choice"
+            )
+
+        action_col1, action_col2 = st.columns(2)
+
+        with action_col1:
+            if st.button("↻ Reset tiến độ học", key="excel_quiz_reset_progress", use_container_width=True):
+                st.session_state.excel_quiz_mastered_keys = set()
+                excel_quiz_reset(clear_wrong=True)
+                st.rerun()
+
+        with action_col2:
+            if st.button("Áp dụng cài đặt", key="excel_quiz_apply_settings", type="primary", use_container_width=True):
+                st.session_state.excel_quiz_settings_version += 1
+                excel_quiz_reset(clear_wrong=True)
+                st.rerun()
+
+    if not (excel_fill_blank or excel_multiple_choice):
+        st.warning("Hãy chọn ít nhất một loại câu hỏi.")
+        return
+
+    use_fill_blank = excel_fill_blank and not excel_multiple_choice
+
+    if excel_fill_blank and excel_multiple_choice:
+        st.info("Bạn đang bật cả 2 loại câu hỏi. App sẽ ưu tiên chế độ trắc nghiệm 4 đáp án.")
+
+    # =========================
+    # ÁP DỤNG LỌC CHƯA THUỘC
+    # =========================
+    quiz_base_df = selected_base_df.copy()
+
+    if excel_only_unmastered:
+        mastered_keys = st.session_state.get("excel_quiz_mastered_keys", set())
+        quiz_base_df = quiz_base_df[
+            ~quiz_base_df.apply(lambda r: row_key(r) in mastered_keys, axis=1)
+        ].reset_index(drop=True)
+
+        if quiz_base_df.empty:
+            st.success("🎉 Bạn đã thuộc hết các câu trong phạm vi đang chọn.")
+            if st.button("↻ Học lại toàn bộ phạm vi này", key="excel_quiz_learn_all_again", use_container_width=True):
+                st.session_state.excel_quiz_mastered_keys = set()
+                excel_quiz_reset(clear_wrong=True)
+                st.rerun()
+            return
+
+    data_key = (
+        f"{source_name}|{sheet_name}|{','.join(selected_pages_clean)}|"
+        f"{len(quiz_base_df)}|{use_api_format}|{excel_only_unmastered}|{excel_in_order}|"
+        f"{excel_shuffle_options}|{use_fill_blank}|{st.session_state.get('excel_quiz_settings_version', 0)}|"
+        f"{'|'.join([c for c in quiz_base_df.columns if not str(c).startswith('__')])}"
+    )
+
+    if st.session_state.excel_quiz_data_key != data_key:
+        st.session_state.excel_quiz_data_key = data_key
+        excel_quiz_reset(clear_wrong=True)
+
+    # Tạo thứ tự câu hỏi
+    order_signature = data_key + f"|order|{len(quiz_base_df)}"
+    if st.session_state.get("excel_quiz_order_signature") != order_signature:
+        order = list(range(len(quiz_base_df)))
+
+        if not excel_in_order:
+            random.shuffle(order)
+
+        st.session_state.excel_quiz_question_order = order
+        st.session_state.excel_quiz_order_signature = order_signature
+        st.session_state.excel_quiz_idx = 0
+        st.session_state.excel_quiz_checked = False
+        st.session_state.excel_quiz_selected = None
+
+    order = st.session_state.get("excel_quiz_question_order", list(range(len(quiz_base_df))))
+    order = [i for i in order if 0 <= i < len(quiz_base_df)]
+
+    if len(order) != len(quiz_base_df):
+        order = list(range(len(quiz_base_df)))
+        if not excel_in_order:
+            random.shuffle(order)
+        st.session_state.excel_quiz_question_order = order
+
+    st.success(
+        f"Đã đọc Google Sheet | Sheet: {sheet_name} | "
+        f"Đang học: {selected_page_label} | Số câu học: {len(quiz_base_df)}"
+    )
+
+    control_col1, control_col2, control_col3, control_col4 = st.columns(4)
+
+    with control_col1:
+        if st.button("🔄 Làm lại lượt này", key="excel_quiz_restart", use_container_width=True):
+            excel_quiz_reset(clear_wrong=True)
+            st.rerun()
+
+    with control_col2:
+        if st.button("❌ Học lại câu sai", key="excel_quiz_wrong_only", use_container_width=True):
+            if st.session_state.excel_quiz_wrong_indices:
+                st.session_state.excel_quiz_review_wrong_only = True
+                st.session_state.excel_quiz_idx = 0
+                st.session_state.excel_quiz_checked = False
+                st.session_state.excel_quiz_selected = None
+                st.rerun()
+            else:
+                st.warning("Hiện chưa có câu sai nào.")
+
+    with control_col3:
+        if st.button("📋 Hiện/ẩn dữ liệu", key="excel_quiz_toggle_data", use_container_width=True):
+            st.session_state.excel_quiz_show_data = not st.session_state.excel_quiz_show_data
+            st.rerun()
+
+    with control_col4:
+        if st.button("↩️ Thoát học lại sai", key="excel_quiz_exit_wrong", use_container_width=True):
+            st.session_state.excel_quiz_review_wrong_only = False
+            st.session_state.excel_quiz_idx = 0
+            st.session_state.excel_quiz_checked = False
+            st.session_state.excel_quiz_selected = None
+            st.rerun()
+
+    if st.session_state.excel_quiz_show_data:
+        display_df = selected_base_df.drop(columns=["__source_index"], errors="ignore")
+        st.dataframe(display_df, use_container_width=True)
+
+    if st.session_state.excel_quiz_review_wrong_only:
+        valid_wrong_indices = [
+            i for i in st.session_state.excel_quiz_wrong_indices
+            if isinstance(i, int) and 0 <= i < len(selected_base_df)
+        ]
+
+        if not valid_wrong_indices:
+            st.success("Không còn câu sai để học lại.")
+            return
+
+        quiz_df = selected_base_df.iloc[valid_wrong_indices].reset_index(drop=True)
+        st.warning(f"Đang học lại {len(quiz_df)} câu sai.")
+    else:
+        quiz_df = quiz_base_df.iloc[order].reset_index(drop=True)
+
+    if st.session_state.excel_quiz_idx >= len(quiz_df):
+        st.success("🎉 Bạn đã làm xong lượt quiz!")
+
+        total_answered = len(st.session_state.excel_quiz_results)
+        correct_count = sum(1 for v in st.session_state.excel_quiz_results.values() if v == "correct")
+        wrong_count = len(st.session_state.excel_quiz_wrong_indices)
+
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        metric_col1.metric("Đã làm", total_answered)
+        metric_col2.metric("Đúng", correct_count)
+        metric_col3.metric("Sai", wrong_count)
+
+        if st.session_state.excel_quiz_wrong_indices:
+            valid_wrong_indices = [
+                i for i in st.session_state.excel_quiz_wrong_indices
+                if isinstance(i, int) and 0 <= i < len(selected_base_df)
+            ]
+            wrong_df = selected_base_df.iloc[valid_wrong_indices].drop(columns=["__source_index"], errors="ignore").reset_index(drop=True)
+
+            st.markdown("### Danh sách câu sai")
+            st.dataframe(wrong_df, use_container_width=True)
+
+        return
+
+    row = quiz_df.iloc[st.session_state.excel_quiz_idx]
+    real_idx = int(row.get("__source_index", st.session_state.excel_quiz_idx))
+
+    st.markdown("---")
+    st.markdown(f"### Câu {st.session_state.excel_quiz_idx + 1} / {len(quiz_df)}")
+
+    page_no = excel_quiz_clean(row.get("Trang", ""))
+    question_no = excel_quiz_clean(row.get("Số câu", ""))
+    q_type = excel_quiz_clean(row.get("Dạng", ""))
+
+    meta = []
+    if page_no:
+        meta.append(f"Trang {page_no}")
+    if question_no:
+        meta.append(f"Câu {question_no}")
+    if q_type:
+        meta.append(q_type)
+
+    if meta:
+        st.caption(" | ".join(meta))
+
+    question_text = excel_quiz_clean(row.get("Câu hỏi", ""))
+    question_display = excel_quiz_clean(row.get("Câu hỏi hiển thị", ""))
+
+    if question_display:
+        question_html = question_display
+    else:
+        question_html = html.escape(question_text)
+
+    st.markdown(
+        f"""
+        <div class='quiz-box'>
+            <div class='quiz-label'>Câu hỏi</div>
+            <div class='quiz-question'>{question_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    options = excel_quiz_get_options(row)
+    right_label = excel_quiz_correct_label(row)
+
+    right_text = ""
+    for label, text in options:
+        if label == right_label:
+            right_text = text
+            break
+
+    selected = None
+    fill_blank_checked = False
+    fill_blank_correct = False
+    fill_blank_answer = ""
+
+    if use_fill_blank:
+        with st.form(f"excel_fill_form_{st.session_state.excel_quiz_idx}_{st.session_state.excel_quiz_review_wrong_only}"):
+            fill_blank_answer = st.text_input(
+                "Nhập đáp án đúng",
+                placeholder="Có thể nhập số đáp án, ký hiệu đáp án hoặc nội dung đáp án..."
+            )
+            fill_blank_checked = st.form_submit_button("Kiểm tra", use_container_width=True)
+
+        if fill_blank_checked:
+            user_norm = normalize_quiz_key(fill_blank_answer)
+            valid_norms = {
+                normalize_quiz_key(right_label),
+                normalize_quiz_key(right_text),
+                normalize_quiz_key(excel_quiz_clean(row.get("Đáp án", ""))),
+                normalize_quiz_key(excel_quiz_clean(row.get("Đáp án đúng", ""))),
+            }
+
+            fill_blank_correct = bool(user_norm and user_norm in valid_norms)
+
+            st.session_state.excel_quiz_selected = fill_blank_answer
+            st.session_state.excel_quiz_checked = True
+
+            if fill_blank_correct:
+                selected = right_label
+            else:
+                selected = "__wrong_fill_blank__"
+    else:
+        display_options = list(options)
+
+        if excel_shuffle_options:
+            shuffle_key = f"{data_key}|{real_idx}|{st.session_state.excel_quiz_idx}|options"
+            rnd = random.Random(shuffle_key)
+            rnd.shuffle(display_options)
+
+        option_container = st.container()
+        with option_container:
+            st.markdown("<div id='excel-quiz-answer-scope'></div>", unsafe_allow_html=True)
+
+            for idx, (label, text) in enumerate(display_options, start=1):
+                btn_col1, btn_col2 = st.columns([1, 12])
+
+                with btn_col1:
+                    st.markdown(f"<div class='quiz-num'>{idx}</div>", unsafe_allow_html=True)
+
+                with btn_col2:
+                    if st.button(
+                        text,
+                        key=f"excel_quiz_opt_{st.session_state.excel_quiz_idx}_{idx}_{label}_{st.session_state.excel_quiz_review_wrong_only}",
+                        use_container_width=True
+                    ):
+                        selected = label
+
+    if selected is not None:
+        st.session_state.excel_quiz_checked = True
+
+        if selected != "__wrong_fill_blank__":
+            st.session_state.excel_quiz_selected = selected
+
+        current_row_key = row_key(row)
+
+        if selected == right_label:
+            st.session_state.excel_quiz_results[real_idx] = "correct"
+            st.session_state.excel_quiz_mastered_keys.add(current_row_key)
+
+            if excel_auto_continue:
+                st.session_state.excel_quiz_idx += 1
+                st.session_state.excel_quiz_checked = False
+                st.session_state.excel_quiz_selected = None
+        else:
+            st.session_state.excel_quiz_results[real_idx] = "wrong"
+            if real_idx not in st.session_state.excel_quiz_wrong_indices:
+                st.session_state.excel_quiz_wrong_indices.append(real_idx)
+
+        st.rerun()
+
+    if st.session_state.excel_quiz_checked and st.session_state.excel_quiz_selected is not None:
+        selected_value = st.session_state.excel_quiz_selected
+
+        if selected_value == right_label or normalize_quiz_key(selected_value) == normalize_quiz_key(right_text):
+            st.success("✅ Đúng rồi!")
+        else:
+            st.error(f"❌ Sai. Đáp án đúng là: {right_label} {right_text}")
+
+        translation = excel_quiz_clean(row.get("Dịch nghĩa", ""))
+        explanation = excel_quiz_clean(row.get("Giải thích ngắn", ""))
+
+        if translation:
+            with st.expander("📌 Dịch nghĩa"):
+                st.write(translation)
+
+        if explanation:
+            with st.expander("💡 Giải thích"):
+                st.write(explanation)
+
+        if st.button("➡️ Câu tiếp theo", key="excel_quiz_next", use_container_width=True):
+            st.session_state.excel_quiz_idx += 1
+            st.session_state.excel_quiz_checked = False
+            st.session_state.excel_quiz_selected = None
+            st.rerun()
+
+    total_answered = len(st.session_state.excel_quiz_results)
+    correct_count = sum(1 for v in st.session_state.excel_quiz_results.values() if v == "correct")
+    wrong_count = len(st.session_state.excel_quiz_wrong_indices)
+    mastered_count = len(st.session_state.get("excel_quiz_mastered_keys", set()))
+
+    st.markdown("---")
+    st.caption(
+        f"Đã làm: {total_answered} | Đúng: {correct_count} | Sai: {wrong_count} | Đã thuộc: {mastered_count}"
+    )
+
+
 for k, v in {
     "folder_no": 1,
     "card_i": 0,
@@ -950,6 +1851,32 @@ for k, v in {
     "editor_i": 0,
     "applied_cards": [],
     "applied_data_key": "",
+
+    # Tab Quiz từ Excel
+    "excel_quiz_idx": 0,
+    "excel_quiz_checked": False,
+    "excel_quiz_selected": None,
+    "excel_quiz_results": {},
+    "excel_quiz_wrong_indices": [],
+    "excel_quiz_review_wrong_only": False,
+    "excel_quiz_data_key": "",
+    "excel_quiz_show_data": False,
+    "excel_quiz_page_filter": ["Tất cả"],
+
+    # Cài đặt học tập cho tab Quiz từ Excel
+    "excel_quiz_only_unmastered": False,
+    "excel_quiz_in_order": True,
+    "excel_quiz_auto_continue": False,
+    "excel_quiz_shuffle_options": False,
+    "excel_quiz_fill_blank": False,
+    "excel_quiz_multiple_choice": True,
+    "excel_quiz_mastered_keys": set(),
+    "excel_quiz_question_order": [],
+    "excel_quiz_order_signature": "",
+    "excel_quiz_settings_version": 0,
+    "excel_quiz_google_url": DEFAULT_EXCEL_QUIZ_GOOGLE_SHEET_URL,
+    "excel_quiz_use_google_api_format": False,
+    "excel_quiz_google_api_key": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1135,7 +2062,8 @@ try:
             st.session_state.editor_i = 0
 
     if not st.session_state.applied_cards:
-        st.warning("Hãy chọn nguồn dữ liệu, nhập cột cần dùng rồi bấm Áp dụng để bắt đầu.")
+        st.warning("Hãy chọn nguồn dữ liệu, nhập cột cần dùng rồi bấm Áp dụng để bắt đầu. Hoặc dùng ngay mục Quiz từ Excel bên dưới.")
+        render_excel_quiz_tab()
         st.stop()
 
     cards_all = st.session_state.applied_cards
@@ -1198,7 +2126,7 @@ try:
         f"từ {start_num}–{end_num} | {len(cards)} thẻ | {folder_quiz_card_count} quiz"
     )
 
-    tab_input, tab_folder, tab_starred, tab_flash, tab_write, tab_learn, tab_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
+    tab_input, tab_folder, tab_starred, tab_flash, tab_write, tab_learn, tab_quiz, tab_excel_quiz, tab_speaking, tab_match, tab_search, tab_data = st.tabs([
         "✍️ Nhập thẻ",
         "📁 Thư mục",
         "⭐ Đã gắn sao",
@@ -1206,6 +2134,7 @@ try:
         "⌨️ Gõ văn bản",
         "🎓 Học",
         "📝 Quiz",
+        "📘 Quiz từ Excel",
         "🎙️ Speaking",
         "🧩 Ghép cặp",
         "🔎 Tìm kiếm",
@@ -2476,6 +3405,9 @@ try:
 
                             if clicked:
                                 check_answer(option)
+
+    with tab_excel_quiz:
+        render_excel_quiz_tab()
 
     with tab_speaking:
         st.subheader(f"🎙️ Speaking — Luyện nói tiếng Hàn — Bộ {st.session_state.folder_no:03d}")
