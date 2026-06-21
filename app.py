@@ -1,4 +1,5 @@
 import re
+import os
 import random
 import math
 import unicodedata
@@ -60,6 +61,38 @@ SAVED_SHEET_COLUMNS = {
 DEFAULT_EXCEL_QUIZ_GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/188bSTqmXvvU55ht8yJt-wlIwfP3mLiOhebhEStcAwvw/edit?gid=421247814#gid=421247814"
 
 STATE_FILE = APP_DIR / "app_star_state.json"
+LOCAL_API_KEY_FILE = APP_DIR / "google_sheets_api_key.txt"
+
+
+def load_saved_google_api_key():
+    """
+    Đọc API key từ máy của bạn, không cần nhập lại mỗi lần.
+
+    Ưu tiên theo thứ tự:
+    1) Biến môi trường GOOGLE_SHEETS_API_KEY
+    2) File .streamlit/secrets.toml với dòng: GOOGLE_SHEETS_API_KEY = "..."
+    3) File google_sheets_api_key.txt đặt cùng thư mục app
+    """
+    env_key = os.getenv("GOOGLE_SHEETS_API_KEY", "").strip()
+
+    if env_key:
+        return env_key
+
+    try:
+        secret_key = st.secrets.get("GOOGLE_SHEETS_API_KEY", "").strip()
+        if secret_key:
+            return secret_key
+    except Exception:
+        pass
+
+    try:
+        if LOCAL_API_KEY_FILE.exists():
+            return LOCAL_API_KEY_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+
+    return ""
+
 
 BUTTON_SUPPORTS_SHORTCUT = "shortcut" in inspect.signature(st.button).parameters
 
@@ -1308,11 +1341,28 @@ def render_excel_quiz_tab():
     with api_col2:
         api_key = st.text_input(
             "Google API key",
-            value=st.session_state.get("excel_quiz_google_api_key", ""),
+            value=st.session_state.get("excel_quiz_google_api_key", load_saved_google_api_key()),
             key="excel_quiz_google_api_key",
             type="password",
             help="Cần API key nếu muốn đọc định dạng gạch chân/in đậm từ Google Sheet."
         )
+
+    save_key_col1, save_key_col2 = st.columns([1, 4])
+
+    with save_key_col1:
+        if st.button("💾 Lưu key", key="excel_quiz_save_api_key", use_container_width=True):
+            if clean_text(api_key):
+                LOCAL_API_KEY_FILE.write_text(clean_text(api_key), encoding="utf-8")
+                st.success("Đã lưu API key vào file google_sheets_api_key.txt trên máy của bạn.")
+                st.rerun()
+            else:
+                st.warning("Chưa có API key để lưu.")
+
+    with save_key_col2:
+        if load_saved_google_api_key():
+            st.caption("✅ Đã tìm thấy API key đã lưu trên máy. Bạn không cần nhập lại mỗi lần.")
+        else:
+            st.caption("Bạn có thể lưu key bằng nút 💾 Lưu key, hoặc dùng file .streamlit/secrets.toml.")
 
     reload_col1, reload_col2 = st.columns([1, 4])
 
@@ -1876,7 +1926,7 @@ for k, v in {
     "excel_quiz_settings_version": 0,
     "excel_quiz_google_url": DEFAULT_EXCEL_QUIZ_GOOGLE_SHEET_URL,
     "excel_quiz_use_google_api_format": False,
-    "excel_quiz_google_api_key": "",
+    "excel_quiz_google_api_key": load_saved_google_api_key(),
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
